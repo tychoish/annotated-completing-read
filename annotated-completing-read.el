@@ -44,6 +44,8 @@
 (require 'map)
 (require 'seq)
 
+(require 'project)
+
 (defvar annotated-completing-read-history (make-hash-table :test #'equal)
   "Hash table mapping command symbols to per-command minibuffer history lists.
 Keys are symbols — typically `this-command' at call time — and values are

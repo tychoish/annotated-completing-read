@@ -52,12 +52,26 @@ Keys are symbols — typically `this-command' at call time — and values are
 the standard Emacs history lists accumulated by `completing-read'.")
 
 (defun annotated-completing-read--ensure-history ()
-  "Reset history to a fresh hash table if savehist restored a corrupt value."
-  (unless (hash-table-p annotated-completing-read-history)
-    (setq annotated-completing-read-history (make-hash-table :test #'equal))))
+  "Ensure history is a valid hash table.
+If savehist or desktop restored the value as an alist, convert it.
+Any other non-hash-table value is discarded and replaced with an empty table."
+  (cond
+    ((hash-table-p annotated-completing-read-history))
+    ((and (proper-list-p annotated-completing-read-history)
+          (or (null annotated-completing-read-history)
+              (seq-every-p #'consp annotated-completing-read-history)))
+     (setq annotated-completing-read-history (map-into annotated-completing-read-history 'hash-table)))
+    (t
+     (setq annotated-completing-read-history (make-hash-table :test #'equal)))))
+
+;;;###autoload
+(defun annotated-completing-read-clear-history ()
+  "Reset the annotated-completing-read per-command history to an empty state."
+  (interactive)
+  (setq annotated-completing-read-history (make-hash-table :test #'equal)))
 
 (defun annotated-completing-read--length-of-longest (items)
-  (apply #'max 0 (mapcar #'length items)))
+  (apply #'max 0 (seq-map #'length items)))
 
 (defun annotated-completing-read--prefix-padding (key longest)
   (make-string (abs (+ 4 (- longest (length key)))) ?\s))
@@ -71,15 +85,15 @@ Signals `user-error' for any other type."
   (cond
    ((hash-table-p table) table)
    ((proper-list-p table)
-    (let ((ht (make-hash-table :test #'equal)))
-      (dolist (pair table)
-        (unless (consp pair)
-          (user-error "Each alist entry must be a cons cell; got: %S" pair))
-        (puthash (car pair)
-                 (let ((v (cdr pair)))
-                   (if (listp v) (car v) v))
-                 ht))
-      ht))
+    (map-into
+     (thread-last
+       table
+       (mapc (lambda (pair)
+	       (unless (consp pair)
+                 (user-error "Each alist entry must be a cons cell; got: %S" pair))))
+       (map-apply (lambda (key value)
+		    (cons key (or (when (listp value) (car value)) value)))))
+     'hash-table))
    (t
     (user-error "TABLE must be a hash table or alist mapping candidates to annotations"))))
 
@@ -177,13 +191,15 @@ other type."
                              ,@(when sort-fn `((display-sort-function . ,sort-fn))))
                          (complete-with-action action (map-keys table) str pred))))
          (hist-sym (make-symbol "history-cell")))
+    (annotated-completing-read--ensure-history)
     (set hist-sym (map-elt annotated-completing-read-history hist-key))
     (let ((result (condition-case err
                       (completing-read prompt collection nil require-match initial-input hist-sym default)
                     (quit (cond (default default)
                                 (or-nil nil)
                                 (t (signal (car err) (cdr err))))))))
-      (map-put! annotated-completing-read-history hist-key (symbol-value hist-sym))
+      (annotated-completing-read--ensure-history)
+      (setf (map-elt annotated-completing-read-history hist-key) (symbol-value hist-sym))
       (cond
         ((not (equal result "")) result)
         (default default)
@@ -204,13 +220,13 @@ SEED is a string or list of strings to include as explicit candidates."
 	((listp seed) seed)
 	((stringp seed) (list seed)))
        (seq-remove #'null)
-       (mapcar (lambda (s) (cons s "seed"))))
+       (seq-map (lambda (s) (cons s "seed"))))
      ;; thing-at-point
      (thread-last
        (cond
 	((derived-mode-p 'prog-mode) '(symbol word sexp defun))
 	((derived-mode-p 'text-mode) '(word email url sentence)))
-       (mapcar (lambda (tap) (cons tap (thing-at-point tap))))
+       (seq-map (lambda (tap) (cons tap (thing-at-point tap))))
        (seq-remove (lambda (pair) (or (null (cdr pair)) (>= (length (cdr pair)) 64))))
        (mapcar (lambda (tapv) (cons (cdr tapv) (format "%s at point" (car tapv))))))
      ;; active region
@@ -351,7 +367,7 @@ Returns the emptry string if there are no options or no selections."
   "Return a brief annotation with subdirectory and file counts for DIR."
   (or (when (file-accessible-directory-p dir)
 	(let* ((entries (directory-files dir t "\\`[^.]"))
-               (n-dirs (cl-count-if #'file-directory-p entries))
+               (n-dirs (seq-count #'file-directory-p entries))
                (n-files (- (length entries) n-dirs)))
           (format "%d dirs, %d files" n-dirs n-files)))
       ""))
@@ -371,36 +387,40 @@ annotation shows entry counts instead."
   (let ((dirs (or (annotated-completing-read--directory-clean candidates)
                   (annotated-completing-read--directory-default-candidates)))
 	(project-root (annotated-completing-read--project-root))
-        (relationship (make-hash-table :test #'equal)))
-
-    (dolist (it (mapcar #'file-truename dirs))
-      (map-put! relationship it
-		(cond
-		 ((and (equal it project-root) (equal it default-directory)) "current directory (project root)")
-		 ((equal it project-root) "project root")
-		 ((equal it default-directory) "current directory")
-		 ((string-prefix-p it default-directory) "parent")
-		 ((string-prefix-p default-directory it) "child")
-		 ((equal (file-name-directory (directory-file-name it))
-			 (file-name-directory (directory-file-name default-directory))) "sibling")
-		 (t ""))))
+        (relationship (map-into
+ 		       (thread-last dirs
+			 (seq-map #'file-truename)
+			 (seq-map (lambda (it)
+				    (cons it
+					  (cond
+					   ((and (equal it project-root) (equal it default-directory)) "current directory (project root)")
+					   ((equal it project-root) "project root")
+					   ((equal it default-directory) "current directory")
+					   ((string-prefix-p it default-directory) "parent")
+					   ((string-prefix-p default-directory it) "child")
+					   ((equal (file-name-directory (directory-file-name it))
+						   (file-name-directory (directory-file-name default-directory))) "sibling")
+					   (t ""))))))
+			 'hash-table)))
 
     (if-let* (((> (map-length relationship) 8))
-              (counts (let ((tbl (make-hash-table :test #'equal)))
-                        (dolist (it dirs tbl)
-                          (map-put! tbl it (annotated-completing-read--directory-entry-counts it))))))
+	      (counts (map-into
+		       (seq-map (lambda (it) (cons it (annotated-completing-read--directory-entry-counts it))) dirs)
+		       'hash-table)))
 	;; then
-        (annotated-completing-read counts
-				   :prompt (or prompt "directory:")
-				   :require-match require-match
-				   :group-name (lambda (c)
-						 (if-let* ((r (map-elt relationship c nil))
-							   ((not (string-empty-p r))))
-						     r "other")))
+        (annotated-completing-read
+	 counts
+	 :prompt (or prompt "directory:")
+	 :require-match require-match
+	 :group-name (lambda (c)
+		       (if-let* ((r (map-elt relationship c nil))
+				 ((not (string-empty-p r))))
+			   r "other")))
       ;; else
-      (annotated-completing-read relationship
-				 :prompt (or prompt "directory:")
-				 :require-match require-match))))
+      (annotated-completing-read
+       relationship
+       :prompt (or prompt "directory:")
+       :require-match require-match))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

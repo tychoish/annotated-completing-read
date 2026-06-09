@@ -344,8 +344,8 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
   (let ((kill-ring (mapcar (lambda (n) (format "kill-%02d" n)) (number-sequence 1 15))))
     (with-temp-buffer
       (let* ((tbl (annotated-completing-read--context-candidates))
-             (kill-keys (cl-remove-if-not (lambda (k) (string-prefix-p "kill-" k))
-                                          (map-keys tbl))))
+             (kill-keys (seq-filter (lambda (k) (string-prefix-p "kill-" k))
+                                    (map-keys tbl))))
         (should (<= (length kill-keys) 10))))))
 
 (ert-deftest annotated-completing-read/candidates-kill-ring-long-item-excluded ()
@@ -611,7 +611,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
 (ert-deftest annotated-completing-read/directory-clean-removes-whitespace-only ()
   "Whitespace-only entries are removed."
   (let ((result (annotated-completing-read--directory-clean (list "/tmp/" "   " "/usr/"))))
-    (should (cl-every (lambda (d) (not (string-blank-p d))) result))))
+    (should (seq-every-p (lambda (d) (not (string-blank-p d))) result))))
 
 (ert-deftest annotated-completing-read/directory-clean-keeps-valid ()
   "Valid absolute paths survive cleaning."
@@ -630,7 +630,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
 (ert-deftest annotated-completing-read/directory-clean-deduplicates ()
   "Duplicate paths are removed."
   (let ((result (annotated-completing-read--directory-clean (list "/tmp/" "/tmp/" "/usr/"))))
-    (should (= (length result) (length (cl-remove-duplicates result :test #'equal))))))
+    (should (= (length result) (length (seq-uniq result))))))
 
 (ert-deftest annotated-completing-read/directory-clean-expands-relative ()
   "Relative paths are expanded to absolute paths."
@@ -657,14 +657,14 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
   (acr-directory-test--with-temp-tree root ("a/b/c")
     (let* ((start (file-name-as-directory (expand-file-name "a/b/c" root)))
            (result (annotated-completing-read--directory-parents start root)))
-      (should (cl-some (lambda (d) (file-equal-p d start)) result)))))
+      (should (seq-some (lambda (d) (file-equal-p d start)) result)))))
 
 (ert-deftest annotated-completing-read/directory-parents-includes-stop ()
   "The stop directory appears in the output."
   (acr-directory-test--with-temp-tree root ("a/b")
     (let* ((start (file-name-as-directory (expand-file-name "a/b" root)))
            (result (annotated-completing-read--directory-parents start root)))
-      (should (cl-some (lambda (d) (file-equal-p d root)) result)))))
+      (should (seq-some (lambda (d) (file-equal-p d root)) result)))))
 
 (ert-deftest annotated-completing-read/directory-parents-returns-list ()
   "The function returns a list."
@@ -880,6 +880,29 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
     (annotated-completing-read--ensure-history)
     (should (hash-table-p annotated-completing-read-history))))
 
+(ert-deftest annotated-completing-read/ensure-history-converts-alist ()
+  "Converts an alist (as savehist may restore) into a hash table preserving entries."
+  (let ((annotated-completing-read-history '((cmd1 . ("a" "b")) (cmd2 . ("c")))))
+    (annotated-completing-read--ensure-history)
+    (should (hash-table-p annotated-completing-read-history))
+    (should (equal '("a" "b") (map-elt annotated-completing-read-history 'cmd1)))
+    (should (equal '("c") (map-elt annotated-completing-read-history 'cmd2)))))
+
+(ert-deftest annotated-completing-read/ensure-history-converts-empty-alist ()
+  "An empty list is promoted to an empty hash table."
+  (let ((annotated-completing-read-history '()))
+    (annotated-completing-read--ensure-history)
+    (should (hash-table-p annotated-completing-read-history))
+    (should (= 0 (hash-table-count annotated-completing-read-history)))))
+
+(ert-deftest annotated-completing-read/clear-history-resets-to-empty ()
+  "clear-history replaces the history table with an empty hash table."
+  (let ((annotated-completing-read-history (make-hash-table :test #'equal)))
+    (map-put! annotated-completing-read-history 'some-cmd '("a" "b"))
+    (annotated-completing-read-clear-history)
+    (should (hash-table-p annotated-completing-read-history))
+    (should (= 0 (hash-table-count annotated-completing-read-history)))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; annotated-completing-read-context-from-point — initial-input
 
@@ -963,7 +986,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
   (acr-directory-test--with-temp-tree root ()
     (let ((result (annotated-completing-read--directory-parents root root)))
       (should (= 1 (length result)))
-      (should (cl-some (lambda (d) (file-equal-p d root)) result)))))
+      (should (seq-some (lambda (d) (file-equal-p d root)) result)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; annotated-completing-read-enable-session-save
@@ -1076,6 +1099,13 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
     (cl-letf (((symbol-function 'completing-read)
                (lambda (&rest _) (signal 'quit nil))))
       (should (equal "fallback" (annotated-completing-read table :default "fallback" :or-nil t))))))
+
+(ert-deftest annotated-completing-read/or-nil-selection-returned ()
+  "With :or-nil t, a real selection is still returned unchanged."
+  (let ((table (acr-test--ht ("a" "ann"))))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) "a")))
+      (should (equal "a" (annotated-completing-read table :or-nil t))))))
 
 ;;; --to-map unit tests
 

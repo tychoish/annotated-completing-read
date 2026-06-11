@@ -384,7 +384,7 @@ With 8 or fewer candidates the annotation shows the directory's relationship
 to the current directory (\"parent\", \"project root\", etc.).  With more
 than 8 candidates candidates are grouped by that relationship label and the
 annotation shows entry counts instead."
-  (let ((dirs (or (annotated-completing-read--directory-clean candidates)
+  (let* ((dirs (or (annotated-completing-read--directory-clean candidates)
                   (annotated-completing-read--directory-default-candidates)))
 	(project-root (annotated-completing-read--project-root))
         (relationship (map-into
@@ -393,15 +393,15 @@ annotation shows entry counts instead."
 			 (seq-map (lambda (it)
 				    (cons it
 					  (cond
-					   ((and (equal it project-root) (equal it default-directory)) "current directory (project root)")
-					   ((equal it project-root) "project root")
-					   ((equal it default-directory) "current directory")
-					   ((string-prefix-p it default-directory) "parent")
-					   ((string-prefix-p default-directory it) "child")
+					   ((and (equal it project-root) (equal it default-directory)) '("current directory (project root)" . 1))
+					   ((equal it project-root) '("project root" . 2))
+					   ((equal it default-directory) '("current directory" . 1))
+					   ((string-prefix-p it default-directory) '("parent" . 2))
+					   ((string-prefix-p default-directory it) '("child" . 5))
 					   ((equal (file-name-directory (directory-file-name it))
-						   (file-name-directory (directory-file-name default-directory))) "sibling")
-					   (t ""))))))
-			 'hash-table)))
+						   (file-name-directory (directory-file-name default-directory))) '("sibling" . 2))
+					   (t '("other" . 10)))))))
+		       'hash-table)))
 
     (if-let* (((> (map-length relationship) 8))
 	      (counts (map-into
@@ -412,15 +412,18 @@ annotation shows entry counts instead."
 	 counts
 	 :prompt (or prompt "directory:")
 	 :require-match require-match
-	 :group-name (lambda (c)
-		       (if-let* ((r (map-elt relationship c nil))
-				 ((not (string-empty-p r))))
-			   r "other")))
+	 :group-name (lambda (c) (car (map-elt relationship c '("other" . 10))))
+	 :sort-fn (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
+
+)
+
       ;; else
       (annotated-completing-read
        relationship
        :prompt (or prompt "directory:")
-       :require-match require-match))))
+       :require-match require-match
+       :group-name (lambda (c) (car (map-elt relationship c '("other" . 10))))
+       :sort-fn (lambda (c) (cdr (map-elt relationship c '("other" . 10))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

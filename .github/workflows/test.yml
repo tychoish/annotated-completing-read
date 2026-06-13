@@ -23,9 +23,11 @@ jobs:
         with:
           version: ${{ matrix.emacs_version }}
 
+      - name: Set up Cask
+        uses: cask/setup-cask@master
+
+      - name: Install dependencies
+        run: cask install
+
       - name: Run tests
-        run: |
-          emacs --batch \
-            --load annotated-completing-read.el \
-            --load test/test-annotated-completing-read.el \
-            --eval '(ert-run-tests-batch-and-exit "annotated-completing-read")'
+        run: cask exec ert-runner test/test-annotated-completing-read.el

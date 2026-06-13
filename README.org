@@ -73,6 +73,11 @@ Generated from docstrings in annotated-completing-read.el. To regenerate: open
 this file in Emacs with annotated-completing-read on your load-path, place
 point in the source block below, and run C-c C-c (or M-x org-babel-execute-buffer).
 Do not edit the #+RESULTS: block by hand — it will be overwritten on the next run.
+
+Scope is controlled by the `scope' variable at the top of the source block:
+  'exported   -- all public symbols (name contains no package-private --)
+  'autoloaded -- only ;;;###autoload-annotated public symbols
+  (list ...)  -- exactly these named symbols, flat output in given order
 #+END_COMMENT
 
 #+BEGIN_SRC emacs-lisp :results output raw :exports none
@@ -88,7 +93,9 @@ Do not edit the #+RESULTS: block by hand — it will be overwritten on the next 
   (let* ((org-dir (file-name-directory (buffer-file-name)))
          (el-file (car (seq-remove
                         (lambda (f) (string-match-p "-test\\.el$\\|test-.*\\.el$" f))
-                        (directory-files org-dir t "\\.el$" t)))))
+                        (directory-files org-dir t "\\.el$" t))))
+         ;; 'exported | 'autoloaded | (list of symbol name strings)
+         (scope 'exported))
     (add-to-list 'load-path org-dir)
     (require (intern (file-name-base el-file)))
 
@@ -115,49 +122,61 @@ Do not edit the #+RESULTS: block by hand — it will be overwritten on the next 
                              rest-paras "\n\n"))))
                    "\n\n")))
 
-    (defun acr-doc--format-sym (name)
+    (defun acr-doc--format-sym (name &optional heading)
       (let* ((sym (intern name))
              (fn-p (fboundp sym))
              (var-p (and (not fn-p) (boundp sym)))
              (doc (or (when fn-p (documentation sym))
                       (when var-p
                         (documentation-property sym 'variable-documentation)))))
-        (format "*** %s~%s~\n\n%s\n\n"
-                (if doc "" "TODO ")
+        (format "%s~%s~\n\n%s\n\n"
+                (concat (or heading "*** ") (if doc "" "TODO "))
                 name
                 (if doc (acr-doc--format-doc doc) "*no docstring*"))))
 
-    ;; Parse sections from the el file by scanning for ruler/comment patterns.
-    ;; Sections are delimited by long ;;;;... ruler lines; the first ;; comment
-    ;; after each ruler names the section.
-    (let (sections current-section current-syms after-ruler)
-      (with-temp-buffer
-        (insert-file-contents el-file)
-        (goto-char (point-min))
-        (while (not (eobp))
-          (let ((line (buffer-substring-no-properties
-                       (line-beginning-position) (line-end-position))))
-            (cond
-             ((string-match "^;\\{10,\\}" line)
-              (when current-section
-                (push (cons current-section (nreverse current-syms)) sections))
-              (setq current-section nil current-syms nil after-ruler t))
-             ((and after-ruler
-                   (string-match "^;; \\(.+\\)" line))
-              (setq current-section (acr-doc--section-name (match-string 1 line))
-                    after-ruler nil))
-             ((and current-section
-                   (string-match "^(\\(?:cl-\\)?def[^ ]+ +'?\\([^ ()]+\\)" line)
-                   (not (string-match-p "--" (match-string 1 line))))
-              (push (match-string 1 line) current-syms))))
-          (forward-line 1))
-        (when current-section
-          (push (cons current-section (nreverse current-syms)) sections)))
+    (cond
+     ;; Section-based collection for 'exported and 'autoloaded.
+     ;; Sections are delimited by long ;;;;... ruler lines; the first ;;
+     ;; comment after each ruler names the section.
+     ((memq scope '(exported autoloaded))
+      (let (sections current-section current-syms after-ruler autoload-next)
+        (with-temp-buffer
+          (insert-file-contents el-file)
+          (goto-char (point-min))
+          (while (not (eobp))
+            (let ((line (buffer-substring-no-properties
+                         (line-beginning-position) (line-end-position))))
+              (cond
+               ((string-match "^;\\{10,\\}" line)
+                (when current-section
+                  (push (cons current-section (nreverse current-syms)) sections))
+                (setq current-section nil current-syms nil after-ruler t))
+               ((and after-ruler (string-match "^;; \\(.+\\)" line))
+                (setq current-section (acr-doc--section-name (match-string 1 line))
+                      after-ruler nil))
+               ((string-match "^;;;###autoload" line)
+                (setq autoload-next t))
+               ((and current-section
+                     (string-match "^(\\(?:cl-\\)?def[^ ]+ +'?\\([^ ()]+\\)" line)
+                     (not (string-match-p "[a-z]--" (match-string 1 line)))
+                     (or (eq scope 'exported)
+                         (and (eq scope 'autoloaded) autoload-next)))
+                (push (match-string 1 line) current-syms)
+                (setq autoload-next nil))
+               ((not (string-empty-p (string-trim line)))
+                (setq autoload-next nil))))
+            (forward-line 1))
+          (when current-section
+            (push (cons current-section (nreverse current-syms)) sections)))
+        (dolist (section (nreverse sections))
+          (princ (format "** %s\n\n" (car section)))
+          (dolist (name (cdr section))
+            (princ (acr-doc--format-sym name))))))
 
-      (dolist (section (nreverse sections))
-        (princ (format "** %s\n\n" (car section)))
-        (dolist (name (cdr section))
-          (princ (acr-doc--format-sym name))))))
+     ;; Flat output for an explicit symbol list, in the given order.
+     ((listp scope)
+      (dolist (name scope)
+        (princ (acr-doc--format-sym name "** "))))))
 #+END_SRC
 
 #+RESULTS:

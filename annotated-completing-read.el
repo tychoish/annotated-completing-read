@@ -419,10 +419,14 @@ annotation shows entry counts instead."
 
       ;; else
       (annotated-completing-read
-       relationship
+       (map-into
+        (thread-last dirs
+          (seq-map #'file-truename)
+          (seq-map (lambda (it)
+                     (cons it (car (map-elt relationship it '("other" . 10)))))))
+        'hash-table)
        :prompt (or prompt "directory:")
        :require-match require-match
-       :group-name (lambda (c) (car (map-elt relationship c '("other" . 10))))
        :sort-fn (lambda (c) (cdr (map-elt relationship c '("other" . 10))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -51,6 +51,16 @@
 Keys are symbols — typically `this-command' at call time — and values are
 the standard Emacs history lists accumulated by `completing-read'.")
 
+(defvar annotated-completing-read-annotation-face 'default
+  "Controls how face properties are applied to annotation strings.
+
+`default'  — apply `completions-annotations' to annotations that carry no
+             face text property.  This is the default.
+`override' — always apply `completions-annotations', overriding any existing face.
+`strip'    — remove all face text properties from annotations.
+Any other symbol — treat it as a face name and apply it to annotations that
+             carry no face text property.")
+
 (defun annotated-completing-read--ensure-history ()
   "Ensure history is a valid hash table.
 If savehist or desktop restored the value as an alist, convert it.
@@ -96,6 +106,24 @@ Signals `user-error' for any other type."
      'hash-table))
    (t
     (user-error "TABLE must be a hash table or alist mapping candidates to annotations"))))
+
+(defun annotated-completing-read--apply-annotation-face (padded raw)
+  "Apply a face to PADDED annotation per `annotated-completing-read-annotation-face'.
+RAW is the annotation before padding; its first character is checked for an
+existing `face' property to decide whether to apply or skip."
+  (pcase annotated-completing-read-annotation-face
+    ('strip
+     (substring-no-properties padded))
+    ('override
+     (propertize padded 'face 'completions-annotations))
+    ('default
+     (if (get-text-property 0 'face raw)
+         padded
+       (propertize padded 'face 'completions-annotations)))
+    (face
+     (if (get-text-property 0 'face raw)
+         padded
+       (propertize padded 'face face)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -172,8 +200,10 @@ other type."
          (longest (annotated-completing-read--length-of-longest (map-keys table)))
          (annotate-fn (lambda (candidate)
                         (when-let* ((ann (map-elt table candidate)))
-                          (concat (annotated-completing-read--prefix-padding candidate longest)
-                                  ann))))
+                          (annotated-completing-read--apply-annotation-face
+                           (concat (annotated-completing-read--prefix-padding candidate longest)
+                                   ann)
+                           ann))))
          (name-fn (cond ((functionp group-name) group-name)
                         (group-name (lambda (_candidate) group-name))))
          (display-fn (or group-display #'identity))

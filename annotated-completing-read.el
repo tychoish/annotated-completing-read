@@ -443,9 +443,7 @@ annotation shows entry counts instead."
 	 :prompt (or prompt "directory:")
 	 :require-match require-match
 	 :group-name (lambda (c) (car (map-elt relationship c '("other" . 10))))
-	 :sort-fn (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
-
-)
+	 :sort-fn (lambda (c) (cdr (map-elt relationship c '("other" . 10)))))
 
       ;; else
       (annotated-completing-read

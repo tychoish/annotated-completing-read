@@ -125,10 +125,6 @@ existing `face' property to decide whether to apply or skip."
          padded
        (propertize padded 'face face)))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; Core Interface
-
 ;;;###autoload
 (cl-defun annotated-completing-read
     (table &key (prompt "=> ") require-match category history group-name group-display initial-input sort-fn default or-nil)
@@ -297,10 +293,6 @@ Returns the emptry string if there are no options or no selections."
    :default ""
    :history (or history this-command 'annotated-completing-read-context-from-point)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; directory selection
-
 (declare-function projectile-project-buffers "projectile")
 (declare-function projectile-project-root "projectile")
 
@@ -457,22 +449,12 @@ annotation shows entry counts instead."
        :require-match require-match
        :sort-fn (lambda (c) (cdr (map-elt relationship c '("other" . 10))))))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defvar savehist-additional-variables nil)
+(defvar desktop-globals-to-save nil)
 
-;; Session
-
-;;;###autoload
-(defun annotated-completing-read-enable-session-save ()
-  "Persist ACR history across sessions via savehist and desktop.
-Registers `annotated-completing-read''s history with savehist mode's hook.
-Call this once after enabling `savehist-mode' and/or `desktop-save-mode'.
-`annotated-completing-read-history' is a hash table; both mechanisms
-can serialize it in Emacs 28+."
-  (when (boundp 'savehist-additional-variables)
-    (add-to-list 'savehist-additional-variables 'annotated-completing-read-history))
-  (when (boundp 'desktop-globals-to-save)
-    (add-to-list 'desktop-globals-to-save 'annotated-completing-read-history))
-  (add-hook 'savehist-mode-hook #'annotated-completing-read--ensure-history))
+(add-to-list 'desktop-globals-to-save 'annotated-completing-read-history)
+(add-to-list 'savehist-additional-variables 'annotated-completing-read-history)
+(add-hook 'savehist-mode-hook #'annotated-completing-read--ensure-history)
 
 (provide 'annotated-completing-read)
 ;;; annotated-completing-read.el ends here

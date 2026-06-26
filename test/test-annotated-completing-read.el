@@ -989,31 +989,20 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
       (should (seq-some (lambda (d) (file-equal-p d root)) result)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; annotated-completing-read-enable-session-save
+;; savehist / desktop integration (top-level registration)
 
-(ert-deftest annotated-completing-read/enable-session-save-savehist ()
-  "Adds history variable to savehist-additional-variables when savehist is loaded."
-  (require 'savehist)
-  (let ((orig savehist-additional-variables))
-    (unwind-protect
-        (progn
-          (setq savehist-additional-variables
-                (remove 'annotated-completing-read-history savehist-additional-variables))
-          (annotated-completing-read-enable-session-save)
-          (should (member 'annotated-completing-read-history savehist-additional-variables)))
-      (setq savehist-additional-variables orig))))
+(ert-deftest annotated-completing-read/savehist-additional-variables ()
+  "Loading ACR registers history in savehist-additional-variables."
+  (should (member 'annotated-completing-read-history savehist-additional-variables)))
 
-(ert-deftest annotated-completing-read/enable-session-save-desktop ()
-  "Adds history variable to desktop-globals-to-save when desktop is loaded."
+(ert-deftest annotated-completing-read/savehist-mode-hook ()
+  "Loading ACR registers ensure-history on savehist-mode-hook."
+  (should (memq #'annotated-completing-read--ensure-history savehist-mode-hook)))
+
+(ert-deftest annotated-completing-read/desktop-globals-to-save ()
+  "Loading ACR registers history in desktop-globals-to-save."
   (require 'desktop)
-  (let ((orig desktop-globals-to-save))
-    (unwind-protect
-        (progn
-          (setq desktop-globals-to-save
-                (remove 'annotated-completing-read-history desktop-globals-to-save))
-          (annotated-completing-read-enable-session-save)
-          (should (member 'annotated-completing-read-history desktop-globals-to-save)))
-      (setq desktop-globals-to-save orig))))
+  (should (member 'annotated-completing-read-history desktop-globals-to-save)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; annotated-completing-read — :default keyword

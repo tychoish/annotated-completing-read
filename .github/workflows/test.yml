@@ -5,15 +5,22 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    container: silex/emacs:${{ matrix.emacs_version }}-ci
+    timeout-minutes: 5
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
         emacs_version:
+          - "29.4"
           - "30.2"
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -21,10 +28,4 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Set up Emacs
-        uses: purcell/setup-emacs@master
-        with:
-          version: ${{ matrix.emacs_version }}
-
-      - name: Run tests
-        run: emacs --batch -L . -l test/test-annotated-completing-read.el -f ert-run-tests-batch-and-exit
+      - run: emacs --batch -L . -l test/test-annotated-completing-read.el -f ert-run-tests-batch-and-exit

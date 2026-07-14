@@ -385,14 +385,31 @@ Returns the emptry string if there are no options or no selections."
          (nconc (seq-filter #'file-directory-p (directory-files proj-root t "[^\\.]")) candidates)
        candidates))))
 
+(defun annotated-completing-read--directory-buffer-count (dir)
+  "Return the number of live buffers visiting a file under DIR."
+  (let ((prefix (file-name-as-directory (expand-file-name dir))))
+    (thread-last (buffer-list)
+      (seq-map #'buffer-file-name)
+      (seq-remove #'null)
+      (seq-count (lambda (file) (string-prefix-p prefix (expand-file-name file)))))))
+
+(defun annotated-completing-read--directory-buffer-suffix (dir)
+  "Return \", N buffers\" for DIR when it has open buffers, else \"\"."
+  (let ((buffers (annotated-completing-read--directory-buffer-count dir)))
+    (if (> buffers 0)
+        (format ", %d buffer%s" buffers (if (= buffers 1) "" "s"))
+      "")))
+
 (defun annotated-completing-read--directory-entry-counts (dir)
-  "Return a brief annotation with subdirectory and file counts for DIR."
-  (or (when (file-accessible-directory-p dir)
-	(let* ((entries (directory-files dir t "\\`[^.]"))
-               (n-dirs (seq-count #'file-directory-p entries))
-               (n-files (- (length entries) n-dirs)))
-          (format "%d dirs, %d files" n-dirs n-files)))
-      ""))
+  "Return a brief annotation with subdirectory, file, and buffer counts for DIR."
+  (concat
+   (or (when (file-accessible-directory-p dir)
+	 (let* ((entries (directory-files dir t "\\`[^.]"))
+                (n-dirs (seq-count #'file-directory-p entries))
+                (n-files (- (length entries) n-dirs)))
+           (format "%d dirs, %d files" n-dirs n-files)))
+       "")
+   (annotated-completing-read--directory-buffer-suffix dir)))
 
 ;;;###autoload
 (cl-defun annotated-completing-read-directory (&optional &key candidates prompt require-match)
@@ -443,7 +460,8 @@ annotation shows entry counts instead."
         (thread-last dirs
           (seq-map #'file-truename)
           (seq-map (lambda (it)
-                     (cons it (car (map-elt relationship it '("other" . 10)))))))
+                     (cons it (concat (car (map-elt relationship it '("other" . 10)))
+                                       (annotated-completing-read--directory-buffer-suffix it))))))
         'hash-table)
        :prompt (or prompt "directory:")
        :require-match require-match

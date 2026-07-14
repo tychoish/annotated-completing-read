@@ -865,6 +865,44 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
   (should (equal "" (annotated-completing-read--directory-entry-counts "/no/such/path/"))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; annotated-completing-read--directory-buffer-count
+
+(ert-deftest annotated-completing-read/directory-buffer-count-finds-buffer-under-dir ()
+  "Counts a live buffer whose file lives under the given directory."
+  (acr-directory-test--with-temp-tree root ("sub1")
+    (let ((buf (find-file-noselect (expand-file-name "sub1/file.txt" root))))
+      (unwind-protect
+          (should (= 1 (annotated-completing-read--directory-buffer-count root)))
+        (kill-buffer buf)))))
+
+(ert-deftest annotated-completing-read/directory-buffer-count-excludes-sibling ()
+  "Does not count a buffer in a sibling directory with a shared name prefix."
+  (acr-directory-test--with-temp-tree root ("sub1")
+    (let* ((sibling (concat (directory-file-name root) "-sibling"))
+           (buf (progn (make-directory sibling t)
+                       (find-file-noselect (expand-file-name "file.txt" sibling)))))
+      (unwind-protect
+          (progn
+            (should (= 0 (annotated-completing-read--directory-buffer-count root)))
+            (should (= 1 (annotated-completing-read--directory-buffer-count sibling))))
+        (kill-buffer buf)
+        (delete-directory sibling t)))))
+
+(ert-deftest annotated-completing-read/directory-buffer-count-zero-for-no-buffers ()
+  "Returns 0 for a directory with no visiting buffers."
+  (acr-directory-test--with-temp-tree root ("sub1")
+    (should (= 0 (annotated-completing-read--directory-buffer-count root)))))
+
+(ert-deftest annotated-completing-read/directory-entry-counts-includes-buffer-count ()
+  "Appends the buffer count to the dirs/files annotation when buffers are open."
+  (acr-directory-test--with-temp-tree root ("sub1")
+    (let ((buf (find-file-noselect (expand-file-name "sub1/file.txt" root))))
+      (unwind-protect
+          (should (string-match-p "1 buffer\\b"
+                                   (annotated-completing-read--directory-entry-counts root)))
+        (kill-buffer buf)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; annotated-completing-read--ensure-history
 
 (ert-deftest annotated-completing-read/ensure-history-noop-when-valid ()

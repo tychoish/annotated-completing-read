@@ -452,7 +452,9 @@ annotation shows entry counts instead."
 	 :prompt (or prompt "directory:")
 	 :require-match require-match
 	 :group-name (lambda (c) (car (map-elt relationship c '("other" . 10))))
-	 :sort-fn (lambda (c) (cdr (map-elt relationship c '("other" . 10)))))
+	 :sort-fn (lambda (candidates)
+		    (seq-sort-by (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
+				 #'< candidates)))
 
       ;; else
       (annotated-completing-read
@@ -465,7 +467,9 @@ annotation shows entry counts instead."
         'hash-table)
        :prompt (or prompt "directory:")
        :require-match require-match
-       :sort-fn (lambda (c) (cdr (map-elt relationship c '("other" . 10))))))))
+       :sort-fn (lambda (candidates)
+		  (seq-sort-by (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
+			       #'< candidates))))))
 
 (defvar savehist-additional-variables nil)
 (defvar desktop-globals-to-save nil)

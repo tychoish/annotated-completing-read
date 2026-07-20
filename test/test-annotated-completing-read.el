@@ -821,6 +821,43 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
       (should (equal "project root"      (map-elt received-table root)))
       (should (equal "current directory" (map-elt received-table current))))))
 
+(ert-deftest annotated-completing-read/directory-sort-fn-sorts-list-ungrouped ()
+  "The ungrouped :sort-fn takes the whole candidate list and returns a sorted list."
+  (let* ((root "/tmp/project/")
+         (current "/tmp/project/src/")
+         (dirs (list "/a/" root current "/b/"))
+         (default-directory current)
+         received-sort-fn)
+    (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () root))
+              ((symbol-function 'annotated-completing-read)
+               (lambda (_tbl &rest args)
+                 (setq received-sort-fn (plist-get args :sort-fn))
+                 current)))
+      (annotated-completing-read-directory :candidates dirs)
+      (should (functionp received-sort-fn))
+      (let ((sorted (funcall received-sort-fn dirs)))
+        (should (listp sorted))
+        (should (equal (length sorted) (length dirs)))))))
+
+(ert-deftest annotated-completing-read/directory-sort-fn-sorts-list-grouped ()
+  "The grouped :sort-fn takes the whole candidate list and returns a sorted list."
+  (let* ((root "/tmp/project/")
+         (current "/tmp/project/src/")
+         (dirs (append (list root current) (mapcar (lambda (n) (format "/tmp/dir%d/" n)) (number-sequence 1 8))))
+         (default-directory current)
+         received-sort-fn)
+    (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () root))
+              ((symbol-function 'annotated-completing-read--directory-entry-counts) (lambda (_) ""))
+              ((symbol-function 'annotated-completing-read)
+               (lambda (_tbl &rest args)
+                 (setq received-sort-fn (plist-get args :sort-fn))
+                 current)))
+      (annotated-completing-read-directory :candidates dirs)
+      (should (functionp received-sort-fn))
+      (let ((sorted (funcall received-sort-fn dirs)))
+        (should (listp sorted))
+        (should (equal (length sorted) (length dirs)))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; annotated-completing-read--filter-directories
 

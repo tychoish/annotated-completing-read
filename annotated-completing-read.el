@@ -297,12 +297,12 @@ Returns the emptry string if there are no options or no selections."
 (declare-function projectile-project-root "projectile")
 
 (defun annotated-completing-read--project-root ()
-  (or (project-root (project-current))
+  (or (when-let* ((project (project-current))) (project-root project))
       (when (featurep 'projectile) (projectile-project-root))
       (expand-file-name default-directory)))
 
 (defun annotated-completing-read--project-buffers ()
-  (or (project-buffers (project-current))
+  (or (when-let* ((project (project-current))) (project-buffers project))
       (when (featurep 'projectile) (projectile-project-buffers))
       (let ((dir (annotated-completing-read--project-root)))
 	(seq-filter (lambda (it)

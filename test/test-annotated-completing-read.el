@@ -1068,10 +1068,12 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
 
 (ert-deftest annotated-completing-read/savehist-additional-variables ()
   "Loading ACR registers history in savehist-additional-variables."
+  (require 'savehist)
   (should (member 'annotated-completing-read-history savehist-additional-variables)))
 
 (ert-deftest annotated-completing-read/savehist-mode-hook ()
   "Loading ACR registers ensure-history on savehist-mode-hook."
+  (require 'savehist)
   (should (memq #'annotated-completing-read--ensure-history savehist-mode-hook)))
 
 (ert-deftest annotated-completing-read/desktop-globals-to-save ()

@@ -471,9 +471,12 @@ SEED is a string or list of strings to include as explicit candidates."
        "")
    (annotated-completing-read--directory-buffer-suffix dir)))
 
-(add-to-list 'desktop-globals-to-save 'annotated-completing-read-history)
-(add-to-list 'savehist-additional-variables 'annotated-completing-read-history)
-(add-hook 'savehist-mode-hook #'annotated-completing-read--ensure-history)
+(with-eval-after-load 'desktop
+  (add-to-list 'desktop-globals-to-save 'annotated-completing-read-history))
+
+(with-eval-after-load 'save-hist
+  (add-to-list 'savehist-additional-variables 'annotated-completing-read-history)
+  (add-hook 'savehist-mode-hook #'annotated-completing-read--ensure-history))
 
 (provide 'annotated-completing-read)
 ;;; annotated-completing-read.el ends here

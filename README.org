@@ -1,18 +1,22 @@
-#+TITLE: annotated-completing-read.el -- ergonomic completing-read with annotations
+#+TITLE: annotated-completing-read -- ergonomic completing-read with annotations
 #+OPTIONS: toc:2 num:nil
 
 * Overview
-Fundamentally, this is a thin wrapper around the standard emacs
+==annotated-completing-read== (acr) is a thin wrapper around the standard emacs
 =completing-read= facility, with a more ergonomic (lisp) interface. It shares a
-lot with =consult--read=, but it's very lightweight, and works well with [[https://github.com/minad/vertico][vertico]]
-(and other minibuffer completion interfaces), [[https://github.com/oantolin/marginalia][marginalia]], and [[https://github.com/oantolin/embark][embark]] (and
-related tooling).
+lot with =consult--read=, but it's lightweight and is part of a public API. And
+of course, and works well with [[https://github.com/minad/vertico][vertico]] (and other minibuffer completion
+interfaces), [[https://github.com/oantolin/marginalia][marginalia]], and [[https://github.com/oantolin/embark][embark]] (and related tooling).
 
 The =annotated-completing-read= function has intuitive, easy to read semantics:
 keyword arguments for all optional arguments, selection options are a mapping
-(hashmap or alist) of options-to-annotations. There are some (bonsu) helpers for
-selecting a directory from a list of likely options and selecting input from a
-list of thing-at-point, kill-ring (and other likely) possibilities.
+(hashmap or alist) of options-to-annotations. There are some (bonus) helpers for
+selecting a directory from a list of likely options and providing a list of
+"dwim" options that includes recent kill-ring items, thing-at-point (and other
+likely candidates). Finally, ==annotated-completing-read== manages tracking
+history of command selections, so that the order that options are presented to
+mold to you over time.
+
 * Contents                                                       :TOC:
 - [[#overview][Overview]]
 - [[#installation][Installation]]
@@ -21,12 +25,11 @@ list of thing-at-point, kill-ring (and other likely) possibilities.
   - [[#use-package][Use Package]]
   - [[#manual][Manual]]
 - [[#api-reference][API Reference]]
-  - [[#annotated-completing-read-history-variable][~annotated-completing-read-history~ [Variable]]]
   - [[#annotated-completing-read-annotation-face-variable][~annotated-completing-read-annotation-face~ [Variable]]]
-  - [[#annotated-completing-read-clear-history-command][~annotated-completing-read-clear-history~ [Command]]]
+  - [[#annotated-completing-read-history-variable][~annotated-completing-read-history~ [Variable]]]
   - [[#annotated-completing-read][~annotated-completing-read~]]
-  - [[#annotated-completing-read-context-from-point][~annotated-completing-read-context-from-point~]]
   - [[#annotated-completing-read-directory][~annotated-completing-read-directory~]]
+  - [[#annotated-completing-read-context-from-point][~annotated-completing-read-context-from-point~]]
 - [[#license][License]]
 
 * Installation
@@ -35,8 +38,9 @@ list of thing-at-point, kill-ring (and other likely) possibilities.
 Requires Emacs 29.1+.  Run once to clone and register the package:
 
 #+BEGIN_SRC emacs-lisp
-(package-vc-install '(annotated-completing-read
-                      :url "https://github.com/tychoish/annotated-completing-read.el"))
+  (package-vc-install
+   '(annotated-completing-read
+     :url "https://github.com/tychoish/annotated-completing-read.el"))
 #+END_SRC
 
 ** use-package with VC
@@ -44,28 +48,28 @@ Requires Emacs 29.1+.  Run once to clone and register the package:
 Requires Emacs 30+.  Installs on first load if not already present:
 
 #+BEGIN_SRC emacs-lisp
-(use-package annotated-completing-read
-  :vc (:url "https://github.com/tychoish/annotated-completing-read.el"))
+  (use-package annotated-completing-read
+    :vc (:url "https://github.com/tychoish/annotated-completing-read.el"))
 #+END_SRC
 
 ** Use Package
 #+BEGIN_SRC sh
-git clone https://github.com/tychoish/annotated-completing-read.el ~/path/to/annotated-completing-read.el
+git clone https://github.com/tychoish/annotated-completing-read.el ~/path/to/annotated-completing-read
 #+END_SRC
 
 #+BEGIN_SRC emacs-lisp
 (use-package annotated-completing-read
-  :load-path "~/path/to/annotated-completing-read.el")
+  :load-path "~/path/to/annotated-completing-read")
 #+END_SRC
 
 ** Manual
 
 #+BEGIN_SRC sh
-git clone https://github.com/tychoish/annotated-completing-read.el ~/path/to/annotated-completing-read.el
+git clone https://github.com/tychoish/annotated-completing-read.el ~/path/to/annotated-completing-read
 #+END_SRC
 
 #+BEGIN_SRC emacs-lisp
-(add-to-list 'load-path "~/path/to/annotated-completing-read.el")
+(add-to-list 'load-path "~/path/to/annotated-completing-read")
 (require 'annotated-completing-read)
 #+END_SRC
 
@@ -88,28 +92,24 @@ Additional symbol kinds are controlled by `include-kinds':
   'customs   -- defcustom
 #+END_COMMENT
 
-#+BEGIN_SRC emacs-lisp :results output raw :exports none
+#+BEGIN_SRC emacs-lisp :results output raw :exports none 
   (require 'org-docsgen)
   (org-docsgen-run
-   :scope 'exported
+   :scope 'autoloaded
    :include-kinds '(variables customs)
    :namespace "annotated-completing-read")
 #+END_SRC
 
 #+RESULTS:
-** ~annotated-completing-read-history~ [Variable]
-
-Hash table mapping command symbols to per-command minibuffer history lists. Keys are symbols — typically ‘this-command’ at call time — and values are the standard Emacs history lists accumulated by ‘completing-read’.
-
 ** ~annotated-completing-read-annotation-face~ [Variable]
 
 Controls how face properties are applied to annotation strings.
 
 ‘default’  — apply ‘completions-annotations’ to annotations that carry no face text property.  This is the default. ‘override’ — always apply ‘completions-annotations’, overriding any existing face. ‘strip’    — remove all face text properties from annotations. Any other symbol — treat it as a face name and apply it to annotations that carry no face text property.
 
-** ~annotated-completing-read-clear-history~ [Command]
+** ~annotated-completing-read-history~ [Variable]
 
-Reset the annotated-completing-read per-command history to an empty state.
+Hash table mapping command symbols to per-command minibuffer history lists. Keys are symbols — typically ‘this-command’ at call time — and values are the standard Emacs history lists accumulated by ‘completing-read’.
 
 ** ~annotated-completing-read~
 
@@ -149,6 +149,14 @@ OR-NIL, when non-nil, silences C-g and empty input by returning nil instead.  Us
 
 TABLE may be a hash table, a dotted alist ((CANDIDATE . ANNOTATION) ...), or a list-form alist ((CANDIDATE ANNOTATION) ...).  ANNOTATION may be nil to suppress the annotation for that candidate.  Signals ‘user-error’ for any other type.
 
+** ~annotated-completing-read-directory~
+
+: (fn &optional &key CANDIDATES PROMPT REQUIRE-MATCH)
+
+Select a directory with annotated completion. CANDIDATES is an explicit list of directory paths; if nil, a context-aware list is computed from the project root, open buffers, and ‘thing-at-point’. PROMPT defaults to "directory: ".  REQUIRE-MATCH is passed through to ‘annotated-completing-read’.
+
+With 8 or fewer candidates the annotation shows the directory’s relationship to the current directory ("parent", "project root", etc.).  With more than 8 candidates candidates are grouped by that relationship label and the annotation shows entry counts instead.
+
 ** ~annotated-completing-read-context-from-point~
 
 : (fn &optional &key PROMPT SEED INITIAL-INPUT HISTORY)
@@ -158,21 +166,6 @@ Select a string from context-aware candidates with PROMPT. Candidates are drawn 
 HISTORY is a symbol passed to ‘annotated-completing-read’ to scope the per-command history; defaults to ‘this-command’, giving each calling command its own isolated history.
 
 Returns the emptry string if there are no options or no selections.
-
-** ~annotated-completing-read-directory~
-
-: (fn &optional &key CANDIDATES PROMPT REQUIRE-MATCH)
-
-Select a directory with annotated completion. CANDIDATES is an explicit list of directory paths; if nil, a context-aware list is computed from the project root, open buffers, and ‘thing-at-point’. PROMPT defaults to "directory: ".  REQUIRE-MATCH is passed through to ‘annotated-completing-read’.
-
-With 8 or fewer candidates the annotation shows the directory’s relationship to the current directory ("parent", "project root", etc.).  With more than 8 candidates candidates are grouped by that relationship label and the annotation shows entry counts instead.
-
-
-
-
-
-
-
 * License
 
 Copyright (C) tychoish. GPL-3.0 or later. See the source file header

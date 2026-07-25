@@ -46,11 +46,6 @@
 
 (require 'project)
 
-(defvar annotated-completing-read-history (make-hash-table :test #'equal)
-  "Hash table mapping command symbols to per-command minibuffer history lists.
-Keys are symbols — typically `this-command' at call time — and values are
-the standard Emacs history lists accumulated by `completing-read'.")
-
 (defvar annotated-completing-read-annotation-face 'default
   "Controls how face properties are applied to annotation strings.
 
@@ -61,69 +56,15 @@ the standard Emacs history lists accumulated by `completing-read'.")
 Any other symbol — treat it as a face name and apply it to annotations that
              carry no face text property.")
 
-(defun annotated-completing-read--ensure-history ()
-  "Ensure history is a valid hash table.
-If savehist or desktop restored the value as an alist, convert it.
-Any other non-hash-table value is discarded and replaced with an empty table."
-  (cond
-    ((hash-table-p annotated-completing-read-history))
-    ((and (proper-list-p annotated-completing-read-history)
-          (or (null annotated-completing-read-history)
-              (seq-every-p #'consp annotated-completing-read-history)))
-     (setq annotated-completing-read-history (map-into annotated-completing-read-history 'hash-table)))
-    (t
-     (setq annotated-completing-read-history (make-hash-table :test #'equal)))))
+(defvar annotated-completing-read-history (make-hash-table :test #'equal)
+  "Hash table mapping command symbols to per-command minibuffer history lists.
+Keys are symbols — typically `this-command' at call time — and values are
+the standard Emacs history lists accumulated by `completing-read'.")
 
-;;;###autoload
 (defun annotated-completing-read-clear-history ()
   "Reset the annotated-completing-read per-command history to an empty state."
   (interactive)
   (setq annotated-completing-read-history (make-hash-table :test #'equal)))
-
-(defun annotated-completing-read--length-of-longest (items)
-  (apply #'max 0 (seq-map #'length items)))
-
-(defun annotated-completing-read--prefix-padding (key longest)
-  (make-string (abs (+ 4 (- longest (length key)))) ?\s))
-
-(defun annotated-completing-read--to-map (table)
-  "Normalize TABLE to a hash table.
-TABLE may be a hash table (returned as-is), a dotted alist
-\((KEY . VALUE) ...), or a list-form alist ((KEY VALUE) ...).
-VALUE may be nil to suppress the annotation for that candidate.
-Signals `user-error' for any other type."
-  (cond
-   ((hash-table-p table) table)
-   ((proper-list-p table)
-    (map-into
-     (thread-last
-       table
-       (mapc (lambda (pair)
-	       (unless (consp pair)
-                 (user-error "Each alist entry must be a cons cell; got: %S" pair))))
-       (map-apply (lambda (key value)
-		    (cons key (or (when (listp value) (car value)) value)))))
-     'hash-table))
-   (t
-    (user-error "TABLE must be a hash table or alist mapping candidates to annotations"))))
-
-(defun annotated-completing-read--apply-annotation-face (padded raw)
-  "Apply a face to PADDED annotation per `annotated-completing-read-annotation-face'.
-RAW is the annotation before padding; its first character is checked for an
-existing `face' property to decide whether to apply or skip."
-  (pcase annotated-completing-read-annotation-face
-    ('strip
-     (substring-no-properties padded))
-    ('override
-     (propertize padded 'face 'completions-annotations))
-    ('default
-     (if (get-text-property 0 'face raw)
-         padded
-       (propertize padded 'face 'completions-annotations)))
-    (face
-     (if (get-text-property 0 'face raw)
-         padded
-       (propertize padded 'face face)))))
 
 ;;;###autoload
 (cl-defun annotated-completing-read
@@ -232,6 +173,145 @@ other type."
         (or-nil nil)
         (t result))))))
 
+;;;###autoload
+(cl-defun annotated-completing-read-directory (&optional &key candidates prompt require-match)
+  "Select a directory with annotated completion.
+CANDIDATES is an explicit list of directory paths; if nil, a context-aware
+list is computed from the project root, open buffers, and `thing-at-point'.
+PROMPT defaults to \"directory: \".  REQUIRE-MATCH is passed through to
+`annotated-completing-read'.
+
+With 8 or fewer candidates the annotation shows the directory's relationship
+to the current directory (\"parent\", \"project root\", etc.).  With more
+than 8 candidates candidates are grouped by that relationship label and the
+annotation shows entry counts instead."
+  (let* ((dirs (or (annotated-completing-read--directory-clean candidates)
+                  (annotated-completing-read--directory-default-candidates)))
+	(project-root (annotated-completing-read--project-root))
+        (relationship (map-into
+ 		       (thread-last dirs
+			 (seq-map #'file-truename)
+			 (seq-map (lambda (it)
+				    (cons it
+					  (cond
+					   ((and (equal it project-root) (equal it default-directory)) '("current directory (project root)" . 1))
+					   ((equal it project-root) '("project root" . 2))
+					   ((equal it default-directory) '("current directory" . 1))
+					   ((string-prefix-p it default-directory) '("parent" . 2))
+					   ((string-prefix-p default-directory it) '("child" . 5))
+					   ((equal (file-name-directory (directory-file-name it))
+						   (file-name-directory (directory-file-name default-directory))) '("sibling" . 2))
+					   (t '("other" . 10)))))))
+		       'hash-table)))
+
+    (if-let* (((> (map-length relationship) 8))
+	      (counts (map-into
+		       (seq-map (lambda (it) (cons it (annotated-completing-read--directory-entry-counts it))) dirs)
+		       'hash-table)))
+	;; then
+        (annotated-completing-read
+	 counts
+	 :prompt (or prompt "directory:")
+	 :require-match require-match
+	 :group-name (lambda (c) (car (map-elt relationship c '("other" . 10))))
+	 :sort-fn (lambda (candidates)
+		    (seq-sort-by (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
+				 #'< candidates)))
+
+      ;; else
+      (annotated-completing-read
+       (map-into
+        (thread-last dirs
+          (seq-map #'file-truename)
+          (seq-map (lambda (it)
+                     (cons it (concat (car (map-elt relationship it '("other" . 10)))
+                                       (annotated-completing-read--directory-buffer-suffix it))))))
+        'hash-table)
+       :prompt (or prompt "directory:")
+       :require-match require-match
+       :sort-fn (lambda (candidates)
+		  (seq-sort-by (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
+			       #'< candidates))))))
+
+;;;###autoload
+(cl-defun annotated-completing-read-context-from-point (&optional &key prompt seed initial-input history)
+  "Select a string from context-aware candidates with PROMPT.
+Candidates are drawn from `thing-at-point', the active region, the current
+line, the kill ring, and any explicit SEED strings.  SEED may be a
+string or a list of strings.  Callers can specify INITIAL-INPUT to
+control an initial selection.
+
+HISTORY is a symbol passed to `annotated-completing-read' to scope the
+per-command history; defaults to `this-command', giving each calling
+command its own isolated history.
+
+Returns the emptry string if there are no options or no selections."
+  (annotated-completing-read
+   (annotated-completing-read--context-candidates seed)
+   :require-match nil
+   :prompt (or prompt "context:")
+   :initial-input initial-input
+   :default ""
+   :history (or history this-command 'annotated-completing-read-context-from-point)))
+
+(defun annotated-completing-read--length-of-longest (items)
+  (apply #'max 0 (seq-map #'length items)))
+
+(defun annotated-completing-read--prefix-padding (key longest)
+  (make-string (abs (+ 4 (- longest (length key)))) ?\s))
+
+(defun annotated-completing-read--to-map (table)
+  "Normalize TABLE to a hash table.
+TABLE may be a hash table (returned as-is), a dotted alist
+\((KEY . VALUE) ...), or a list-form alist ((KEY VALUE) ...).
+VALUE may be nil to suppress the annotation for that candidate.
+Signals `user-error' for any other type."
+  (cond
+   ((hash-table-p table) table)
+   ((proper-list-p table)
+    (map-into
+     (thread-last
+       table
+       (mapc (lambda (pair)
+	       (unless (consp pair)
+                 (user-error "Each alist entry must be a cons cell; got: %S" pair))))
+       (map-apply (lambda (key value)
+		    (cons key (or (when (listp value) (car value)) value)))))
+     'hash-table))
+   (t
+    (user-error "TABLE must be a hash table or alist mapping candidates to annotations"))))
+
+(defun annotated-completing-read--ensure-history ()
+  "Ensure history is a valid hash table.
+If savehist or desktop restored the value as an alist, convert it.
+Any other non-hash-table value is discarded and replaced with an empty table."
+  (cond
+    ((hash-table-p annotated-completing-read-history))
+    ((and (proper-list-p annotated-completing-read-history)
+          (or (null annotated-completing-read-history)
+              (seq-every-p #'consp annotated-completing-read-history)))
+     (setq annotated-completing-read-history (map-into annotated-completing-read-history 'hash-table)))
+    (t
+     (setq annotated-completing-read-history (make-hash-table :test #'equal)))))
+
+(defun annotated-completing-read--apply-annotation-face (padded raw)
+  "Apply a face to PADDED annotation per `annotated-completing-read-annotation-face'.
+RAW is the annotation before padding; its first character is checked for an
+existing `face' property to decide whether to apply or skip."
+  (pcase annotated-completing-read-annotation-face
+    ('strip
+     (substring-no-properties padded))
+    ('override
+     (propertize padded 'face 'completions-annotations))
+    ('default
+     (if (get-text-property 0 'face raw)
+         padded
+       (propertize padded 'face 'completions-annotations)))
+    (face
+     (if (get-text-property 0 'face raw)
+         padded
+       (propertize padded 'face face)))))
+
 (defun annotated-completing-read--context-candidates (&optional seed)
   "Build an annotated alist of candidates from the current context.
 SEED is a string or list of strings to include as explicit candidates."
@@ -272,26 +352,6 @@ SEED is a string or list of strings to include as explicit candidates."
     (seq-remove (lambda (p) (string-empty-p (car p))))
     (seq-filter (lambda (p) (< (length (car p)) 128)))))
 
-;;;###autoload
-(cl-defun annotated-completing-read-context-from-point (&optional &key prompt seed initial-input history)
-  "Select a string from context-aware candidates with PROMPT.
-Candidates are drawn from `thing-at-point', the active region, the current
-line, the kill ring, and any explicit SEED strings.  SEED may be a
-string or a list of strings.  Callers can specify INITIAL-INPUT to
-control an initial selection.
-
-HISTORY is a symbol passed to `annotated-completing-read' to scope the
-per-command history; defaults to `this-command', giving each calling
-command its own isolated history.
-
-Returns the emptry string if there are no options or no selections."
-  (annotated-completing-read
-   (annotated-completing-read--context-candidates seed)
-   :require-match nil
-   :prompt (or prompt "context:")
-   :initial-input initial-input
-   :default ""
-   :history (or history this-command 'annotated-completing-read-context-from-point)))
 
 (declare-function projectile-project-buffers "projectile")
 (declare-function projectile-project-root "projectile")
@@ -410,69 +470,6 @@ Returns the emptry string if there are no options or no selections."
            (format "%d dirs, %d files" n-dirs n-files)))
        "")
    (annotated-completing-read--directory-buffer-suffix dir)))
-
-;;;###autoload
-(cl-defun annotated-completing-read-directory (&optional &key candidates prompt require-match)
-  "Select a directory with annotated completion.
-CANDIDATES is an explicit list of directory paths; if nil, a context-aware
-list is computed from the project root, open buffers, and `thing-at-point'.
-PROMPT defaults to \"directory: \".  REQUIRE-MATCH is passed through to
-`annotated-completing-read'.
-
-With 8 or fewer candidates the annotation shows the directory's relationship
-to the current directory (\"parent\", \"project root\", etc.).  With more
-than 8 candidates candidates are grouped by that relationship label and the
-annotation shows entry counts instead."
-  (let* ((dirs (or (annotated-completing-read--directory-clean candidates)
-                  (annotated-completing-read--directory-default-candidates)))
-	(project-root (annotated-completing-read--project-root))
-        (relationship (map-into
- 		       (thread-last dirs
-			 (seq-map #'file-truename)
-			 (seq-map (lambda (it)
-				    (cons it
-					  (cond
-					   ((and (equal it project-root) (equal it default-directory)) '("current directory (project root)" . 1))
-					   ((equal it project-root) '("project root" . 2))
-					   ((equal it default-directory) '("current directory" . 1))
-					   ((string-prefix-p it default-directory) '("parent" . 2))
-					   ((string-prefix-p default-directory it) '("child" . 5))
-					   ((equal (file-name-directory (directory-file-name it))
-						   (file-name-directory (directory-file-name default-directory))) '("sibling" . 2))
-					   (t '("other" . 10)))))))
-		       'hash-table)))
-
-    (if-let* (((> (map-length relationship) 8))
-	      (counts (map-into
-		       (seq-map (lambda (it) (cons it (annotated-completing-read--directory-entry-counts it))) dirs)
-		       'hash-table)))
-	;; then
-        (annotated-completing-read
-	 counts
-	 :prompt (or prompt "directory:")
-	 :require-match require-match
-	 :group-name (lambda (c) (car (map-elt relationship c '("other" . 10))))
-	 :sort-fn (lambda (candidates)
-		    (seq-sort-by (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
-				 #'< candidates)))
-
-      ;; else
-      (annotated-completing-read
-       (map-into
-        (thread-last dirs
-          (seq-map #'file-truename)
-          (seq-map (lambda (it)
-                     (cons it (concat (car (map-elt relationship it '("other" . 10)))
-                                       (annotated-completing-read--directory-buffer-suffix it))))))
-        'hash-table)
-       :prompt (or prompt "directory:")
-       :require-match require-match
-       :sort-fn (lambda (candidates)
-		  (seq-sort-by (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
-			       #'< candidates))))))
-
-(defvar savehist-additional-variables nil)
-(defvar desktop-globals-to-save nil)
 
 (add-to-list 'desktop-globals-to-save 'annotated-completing-read-history)
 (add-to-list 'savehist-additional-variables 'annotated-completing-read-history)

@@ -474,7 +474,7 @@ SEED is a string or list of strings to include as explicit candidates."
 (with-eval-after-load 'desktop
   (add-to-list 'desktop-globals-to-save 'annotated-completing-read-history))
 
-(with-eval-after-load 'save-hist
+(with-eval-after-load 'savehist
   (add-to-list 'savehist-additional-variables 'annotated-completing-read-history)
   (add-hook 'savehist-mode-hook #'annotated-completing-read--ensure-history))
 

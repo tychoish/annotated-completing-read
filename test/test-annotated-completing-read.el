@@ -1175,8 +1175,9 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
 
 ;;; --to-map unit tests
 
-(ert-deftest annotated-completing-read/to-map-hash-passthrough ()
-  "Hash tables are returned as-is (identity, no copy)."
+(ert-deftest annotated-completing-read/to-map-hash-identity-preserved ()
+  "A hash table is validated and returned as-is, not copied — its values
+already use the same shape `--to-map' would otherwise produce."
   (let* ((ht (acr-test--ht ("a" "1")))
          (result (annotated-completing-read--to-map ht)))
     (should (eq ht result))))
@@ -1198,6 +1199,44 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
     (should (hash-table-p result))
     (should (null (map-elt result "a")))
     (should (equal "2" (map-elt result "b")))))
+
+(ert-deftest annotated-completing-read/to-map-dotted-alist-no-target ()
+  "Plain dotted-alist entries normalize to a bare annotation, not a cons."
+  (let ((result (annotated-completing-read--to-map '(("a" . "1")))))
+    (should-not (consp (map-elt result "a")))))
+
+(ert-deftest annotated-completing-read/to-map-list-form-no-target ()
+  "Plain list-form entries normalize to a bare annotation, not a cons."
+  (let ((result (annotated-completing-read--to-map '(("a" "1")))))
+    (should-not (consp (map-elt result "a")))))
+
+(ert-deftest annotated-completing-read/to-map-triple-form-target ()
+  "A triple-form entry (CANDIDATE ANNOTATION . TARGET) carries its target."
+  (let ((result (annotated-completing-read--to-map '(("a" "ann" . :the-target)))))
+    (should (equal "ann" (car (map-elt result "a"))))
+    (should (eq :the-target (cdr (map-elt result "a"))))))
+
+(ert-deftest annotated-completing-read/to-map-hash-string-no-target ()
+  "Plain string hash-table values are passed through as bare annotations."
+  (let ((result (annotated-completing-read--to-map (acr-test--ht ("a" "ann")))))
+    (should (equal "ann" (map-elt result "a")))))
+
+(ert-deftest annotated-completing-read/to-map-hash-cons-target ()
+  "A hash-table value of (ANNOTATION . TARGET) carries its target."
+  (let ((result (annotated-completing-read--to-map (acr-test--ht ("a" '("ann" . :the-target))))))
+    (should (equal "ann" (car (map-elt result "a"))))
+    (should (eq :the-target (cdr (map-elt result "a"))))))
+
+(ert-deftest annotated-completing-read/to-map-hash-cons-nil-target ()
+  "A hash-table value of (ANNOTATION . nil) is an explicit nil target, not \"no target\"."
+  (let ((result (annotated-completing-read--to-map (acr-test--ht ("a" '("ann" . nil))))))
+    (should (consp (map-elt result "a")))
+    (should (equal "ann" (car (map-elt result "a"))))
+    (should (null (cdr (map-elt result "a"))))))
+
+(ert-deftest annotated-completing-read/to-map-hash-rejects-non-string-non-cons ()
+  "A hash-table value that is neither a string, nil, nor a cons signals user-error."
+  (should-error (annotated-completing-read--to-map (acr-test--ht ("a" 42))) :type 'user-error))
 
 (ert-deftest annotated-completing-read/to-map-empty-alist ()
   (let ((result (annotated-completing-read--to-map '())))
@@ -1271,6 +1310,123 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
              (ann-long  (funcall annotate "much-longer-key")))
         (should (= (+ (length "a")               (length ann-short))
                    (+ (length "much-longer-key") (length ann-long))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; annotated-completing-read — target/value support
+
+(ert-deftest annotated-completing-read/bare-string-list-unaffected ()
+  "A bare-string alist entry with no annotation returns the candidate string."
+  (let ((table '(("a" . nil))))
+    (acr-with-mock table "a"
+      (should (equal "a" (annotated-completing-read table))))))
+
+(ert-deftest annotated-completing-read/dotted-cons-list-unaffected ()
+  "A plain dotted-cons entry returns the candidate string, not the annotation."
+  (let ((table '(("a" . "some annotation"))))
+    (acr-with-mock table "a"
+      (should (equal "a" (annotated-completing-read table))))))
+
+(ert-deftest annotated-completing-read/triple-form-returns-target ()
+  "A triple-form entry returns its target instead of the candidate string."
+  (let ((table '(("a" "ann" . :target-a) ("b" "ann" . :target-b))))
+    (acr-with-mock table "a"
+      (should (eq :target-a (annotated-completing-read table))))
+    (acr-with-mock table "b"
+      (should (eq :target-b (annotated-completing-read table))))))
+
+(ert-deftest annotated-completing-read/triple-form-target-can-be-any-object ()
+  "A triple-form target may be any Lisp object, e.g. a struct-like list."
+  (let* ((obj (list :name "a" :payload 42))
+         (table (list (cons "a" (cons "ann" obj)))))
+    (acr-with-mock table "a"
+      (should (eq obj (annotated-completing-read table))))))
+
+(ert-deftest annotated-completing-read/hash-string-values-unaffected ()
+  "A hash table of plain string annotations returns the candidate string."
+  (let ((table (acr-test--ht ("a" "ann"))))
+    (acr-with-mock table "a"
+      (should (equal "a" (annotated-completing-read table))))))
+
+(ert-deftest annotated-completing-read/hash-cons-target-returned ()
+  "A hash-table (ANNOTATION . TARGET) value returns the target."
+  (let ((table (acr-test--ht ("a" '("ann" . :hash-target)))))
+    (acr-with-mock table "a"
+      (should (eq :hash-target (annotated-completing-read table))))))
+
+(ert-deftest annotated-completing-read/hash-cons-nil-target-returned ()
+  "An explicit nil target is returned as nil, not the candidate string."
+  (let ((table (acr-test--ht ("a" '("ann" . nil)))))
+    (acr-with-mock table "a"
+      (should (null (annotated-completing-read table))))))
+
+(ert-deftest annotated-completing-read/arbitrary-input-with-targets-in-table ()
+  "Input not present in TABLE is returned verbatim even when other entries have targets."
+  (let ((table '(("known" "ann" . :known-target))))
+    (acr-with-mock table "typed-freely"
+      (should (equal "typed-freely" (annotated-completing-read table :require-match nil))))))
+
+(ert-deftest annotated-completing-read/default-resolves-target-on-empty-table ()
+  "DEFAULT resolves through TABLE's target mapping even on the empty-table short-circuit."
+  (let ((table '()))
+    (should (equal "fallback" (annotated-completing-read table :default "fallback")))))
+
+(ert-deftest annotated-completing-read/default-resolves-target-when-named-in-table ()
+  "When DEFAULT names a table entry with a target, that target is returned."
+  (let ((table '(("fallback" "ann" . :default-target))))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) "")))
+      (should (eq :default-target (annotated-completing-read table :default "fallback"))))))
+
+(ert-deftest annotated-completing-read/quit-default-resolves-target ()
+  "On quit, DEFAULT still resolves through TABLE's target mapping."
+  (let ((table '(("fallback" "ann" . :quit-target))))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) (signal 'quit nil))))
+      (should (eq :quit-target (annotated-completing-read table :default "fallback"))))))
+
+(ert-deftest annotated-completing-read/or-nil-unaffected-by-targets ()
+  "With :or-nil t, quitting still returns nil even when TABLE entries have targets."
+  (let ((table '(("a" "ann" . :target-a))))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) (signal 'quit nil))))
+      (should-not (annotated-completing-read table :or-nil t)))))
+
+(ert-deftest annotated-completing-read/group-name-operates-on-candidate-with-target ()
+  "The :group-name function still receives the candidate string, not the target."
+  (let ((table '(("TestFoo" "t" . :target-foo) ("BenchBar" "b" . :target-bar))))
+    (acr-with-mock table "TestFoo"
+      (annotated-completing-read
+       table
+       :group-name (lambda (c) (if (string-prefix-p "Bench" c) "Benchmarks" "Tests")))
+      (let ((gfn (alist-get 'group-function (acr-metadata captured-collection))))
+        (should (equal "Tests"      (funcall gfn "TestFoo"  nil)))
+        (should (equal "Benchmarks" (funcall gfn "BenchBar" nil)))))))
+
+(ert-deftest annotated-completing-read/sort-fn-operates-on-candidate-with-target ()
+  "The :sort-fn function still receives candidate strings, not targets."
+  (let* ((table '(("z" "last" . :target-z) ("a" "first" . :target-a)))
+         (my-sort (lambda (items) (sort (copy-sequence items) #'string<))))
+    (acr-with-mock table "a"
+      (annotated-completing-read table :sort-fn my-sort)
+      (let* ((dsf (alist-get 'display-sort-function (acr-metadata captured-collection)))
+             (result (funcall dsf '("z" "a"))))
+        (should (equal '("a" "z") result))))))
+
+(ert-deftest annotated-completing-read/category-operates-on-candidate-with-target ()
+  "The :category metadata is unaffected by the presence of targets."
+  (let ((table '(("a" "ann" . :target-a))))
+    (acr-with-mock table "a"
+      (annotated-completing-read table :category 'my-category)
+      (should (eq 'my-category
+                  (alist-get 'category (acr-metadata captured-collection)))))))
+
+(ert-deftest annotated-completing-read/annotation-shown-for-triple-form ()
+  "The annotation-function still displays the annotation, not the target."
+  (let ((table '(("a" "the annotation" . :target-a))))
+    (acr-with-mock table "a"
+      (annotated-completing-read table)
+      (let ((annotate (alist-get 'annotation-function (acr-metadata captured-collection))))
+        (should (string-match-p "the annotation" (funcall annotate "a")))))))
 
 (provide 'test-annotated-completing-read)
 ;;; test-annotated-completing-read.el ends here

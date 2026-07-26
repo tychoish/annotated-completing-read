@@ -125,18 +125,26 @@ nil instead.  Useful when the caller treats nil as \"nothing selected\" without
 needing a specific fallback string.  Takes effect only when DEFAULT is nil;
 DEFAULT takes precedence.
 
-TABLE may be a hash table, a dotted alist ((CANDIDATE . ANNOTATION) ...), or
-a list-form alist ((CANDIDATE ANNOTATION) ...).  ANNOTATION may be nil to
-suppress the annotation for that candidate.  Signals `user-error' for any
-other type."
+TABLE may be a hash table, a dotted alist ((CANDIDATE . ANNOTATION) ...), a
+list-form alist ((CANDIDATE ANNOTATION) ...), or a triple-form alist
+\((CANDIDATE ANNOTATION . TARGET) ...).  ANNOTATION may be nil to suppress
+the annotation for that candidate.  Signals `user-error' for any other type.
+
+TARGET, when a table entry supplies one (via the triple-form list entry or
+a hash-table value of (ANNOTATION . TARGET)), is returned in place of the
+selected candidate string — including when the candidate is resolved via
+DEFAULT.  Entries with no target continue to return the candidate string,
+unchanged from prior behavior."
   (let ((table (annotated-completing-read--to-map table)))
   (when (and (or default or-nil) (zerop (map-length table)))
-    (cl-return-from annotated-completing-read default))
+    (cl-return-from annotated-completing-read
+      (annotated-completing-read--resolve-target table default)))
   (let* ((prompt (if (string-suffix-p " " prompt) prompt (concat prompt " ")))
          (hist-key (or history this-command 'annotated-completing-read))
          (longest (annotated-completing-read--length-of-longest (map-keys table)))
          (annotate-fn (lambda (candidate)
-                        (when-let* ((ann (map-elt table candidate)))
+                        (when-let* ((value (map-elt table candidate))
+                                    (ann (if (consp value) (car value) value)))
                           (annotated-completing-read--apply-annotation-face
                            (concat (annotated-completing-read--prefix-padding candidate longest)
                                    ann)
@@ -168,8 +176,8 @@ other type."
       (annotated-completing-read--ensure-history)
       (setf (map-elt annotated-completing-read-history hist-key) (symbol-value hist-sym))
       (cond
-        ((not (equal result "")) result)
-        (default default)
+        ((not (equal result "")) (annotated-completing-read--resolve-target table result))
+        (default (annotated-completing-read--resolve-target table default))
         (or-nil nil)
         (t result))))))
 
@@ -260,23 +268,65 @@ Returns the emptry string if there are no options or no selections."
 (defun annotated-completing-read--prefix-padding (key longest)
   (make-string (abs (+ 4 (- longest (length key)))) ?\s))
 
-(defun annotated-completing-read--to-map (table)
-  "Normalize TABLE to a hash table.
-TABLE may be a hash table (returned as-is), a dotted alist
-\((KEY . VALUE) ...), or a list-form alist ((KEY VALUE) ...).
-VALUE may be nil to suppress the annotation for that candidate.
-Signals `user-error' for any other type."
+(defun annotated-completing-read--validate-hash-value (value)
+  "Signal `user-error' unless VALUE is a valid hash-table candidate value.
+VALUE must be a string or nil (a plain annotation, no target) or a cons
+\(ANNOTATION . TARGET).  Any other shape is rejected, since a hash-table
+annotation cannot otherwise be told apart from a target pair."
+  (unless (or (stringp value) (null value) (consp value))
+    (user-error "Hash-table annotation must be a string, nil, or (ANNOTATION . TARGET); got: %S" value)))
+
+(defun annotated-completing-read--normalize-alist-value (value)
+  "Normalize an alist entry VALUE to ANNOTATION or (ANNOTATION . TARGET).
+VALUE may be a plain annotation (a string or nil, from a dotted alist
+entry), a single-element list (ANNOTATION) (from a list-form alist
+entry), or (ANNOTATION . TARGET) (from a triple-form entry).  The result
+uses the same shape as a hash-table value: a bare annotation means no
+target; a cons carries an explicit target in its cdr."
   (cond
-   ((hash-table-p table) table)
+   ((and (consp value) (cdr value))
+    (cons (car value) (cdr value)))
+   ((consp value)
+    (car value))
+   (t
+    value)))
+
+(defun annotated-completing-read--resolve-target (table candidate)
+  "Resolve CANDIDATE's return value from TABLE.
+When TABLE's value for CANDIDATE is a cons, its cdr is the target and is
+returned.  Otherwise CANDIDATE itself is returned — whether because it has
+no entry in TABLE, or because its entry carries only an annotation."
+  (let ((value (map-elt table candidate)))
+    (if (consp value)
+        (cdr value)
+      candidate)))
+
+(defun annotated-completing-read--to-map (table)
+  "Normalize TABLE to a hash table of candidate -> ANNOTATION-or-TARGET-pair.
+TABLE may be a hash table mapping candidates to annotation strings (or to
+\(ANNOTATION . TARGET) conses), a dotted alist ((CANDIDATE . ANNOTATION) ...),
+a list-form alist ((CANDIDATE ANNOTATION) ...), or a triple-form alist
+\((CANDIDATE ANNOTATION . TARGET) ...).  ANNOTATION may be nil to suppress
+the annotation for that candidate.  TARGET, when present, is returned by
+`annotated-completing-read' in place of the candidate string.
+
+A hash-table TABLE is validated and returned as-is — never copied — since
+its values already use the same ANNOTATION-or-(ANNOTATION . TARGET) shape
+this function would otherwise produce.  Signals `user-error' for any other
+input type."
+  (cond
+   ((hash-table-p table)
+    (seq-do #'annotated-completing-read--validate-hash-value (map-values table))
+    table)
    ((proper-list-p table)
+    (seq-do (lambda (pair)
+              (unless (consp pair)
+                (user-error "Each alist entry must be a cons cell; got: %S" pair)))
+            table)
     (map-into
-     (thread-last
-       table
-       (mapc (lambda (pair)
-	       (unless (consp pair)
-                 (user-error "Each alist entry must be a cons cell; got: %S" pair))))
-       (map-apply (lambda (key value)
-		    (cons key (or (when (listp value) (car value)) value)))))
+     (seq-map (lambda (pair)
+                (cons (car pair) (annotated-completing-read--normalize-alist-value (cdr pair))))
+              table)
      'hash-table))
    (t
     (user-error "TABLE must be a hash table or alist mapping candidates to annotations"))))

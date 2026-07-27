@@ -30,10 +30,8 @@ element (the completion table function)."
 
 (defmacro acr-test--ht (&rest pairs)
   "Create a hash table with equal test from PAIRS of (key value) forms."
-  (let ((h (make-symbol "h")))
-    `(let ((,h (make-hash-table :test #'equal)))
-       ,@(mapcar (lambda (pair) `(map-put! ,h ,(car pair) ,(cadr pair))) pairs)
-       ,h)))
+  `(map-into (list ,@(mapcar (lambda (pair) `(cons ,(car pair) ,(cadr pair))) pairs))
+             '(hash-table :test equal)))
 
 ;;; Guard
 
@@ -945,7 +943,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
 (ert-deftest annotated-completing-read/ensure-history-noop-when-valid ()
   "Does nothing when history is already a hash table."
   (let ((annotated-completing-read-history (make-hash-table :test #'equal)))
-    (map-put! annotated-completing-read-history 'cmd '("a"))
+    (setf (map-elt annotated-completing-read-history 'cmd) '("a"))
     (annotated-completing-read--ensure-history)
     (should (equal '("a") (map-elt annotated-completing-read-history 'cmd)))))
 
@@ -973,7 +971,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
 (ert-deftest annotated-completing-read/clear-history-resets-to-empty ()
   "clear-history replaces the history table with an empty hash table."
   (let ((annotated-completing-read-history (make-hash-table :test #'equal)))
-    (map-put! annotated-completing-read-history 'some-cmd '("a" "b"))
+    (setf (map-elt annotated-completing-read-history 'some-cmd) '("a" "b"))
     (annotated-completing-read-clear-history)
     (should (hash-table-p annotated-completing-read-history))
     (should (= 0 (hash-table-count annotated-completing-read-history)))))

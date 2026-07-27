@@ -1033,6 +1033,52 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
       (annotated-completing-read-directory :candidates (list dir) :require-match t)
       (should (eq t received-require-match)))))
 
+(ert-deftest annotated-completing-read/directory-multiple-min-max-forwarded-ungrouped ()
+  "The :multiple/:min/:max keywords reach the ungrouped (<=8 candidates) call."
+  (let* ((dir (expand-file-name "/tmp/"))
+         (default-directory dir)
+         received)
+    (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () dir))
+              ((symbol-function 'annotated-completing-read)
+               (lambda (_tbl &rest args)
+                 (setq received args)
+                 dir)))
+      (annotated-completing-read-directory :candidates (list dir) :multiple t :min 1 :max 3)
+      (should (eq t (plist-get received :multiple)))
+      (should (= 1 (plist-get received :min)))
+      (should (= 3 (plist-get received :max))))))
+
+(ert-deftest annotated-completing-read/directory-multiple-min-max-forwarded-grouped ()
+  "The :multiple/:min/:max keywords reach the grouped (>8 candidates) call."
+  (let* ((dirs (mapcar (lambda (n) (format "/tmp/dir%d/" n)) (number-sequence 1 9)))
+         (default-directory "/tmp/dir1/")
+         received)
+    (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () "/tmp/dir1/"))
+              ((symbol-function 'annotated-completing-read--directory-entry-counts) (lambda (_) ""))
+              ((symbol-function 'annotated-completing-read)
+               (lambda (_tbl &rest args)
+                 (setq received args)
+                 "/tmp/dir1/")))
+      (annotated-completing-read-directory :candidates dirs :multiple t :min 2 :max 4)
+      (should (eq t (plist-get received :multiple)))
+      (should (= 2 (plist-get received :min)))
+      (should (= 4 (plist-get received :max))))))
+
+(ert-deftest annotated-completing-read/directory-multiple-omitted-defaults-nil ()
+  "Without :multiple, MULTIPLE/MIN/MAX are forwarded as nil, not a stray flag."
+  (let* ((dir (expand-file-name "/tmp/"))
+         (default-directory dir)
+         received)
+    (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () dir))
+              ((symbol-function 'annotated-completing-read)
+               (lambda (_tbl &rest args)
+                 (setq received args)
+                 dir)))
+      (annotated-completing-read-directory :candidates (list dir))
+      (should (null (plist-get received :multiple)))
+      (should (null (plist-get received :min)))
+      (should (null (plist-get received :max))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; annotated-completing-read — empty table
 
@@ -1427,6 +1473,211 @@ already use the same shape `--to-map' would otherwise produce."
       (annotated-completing-read table)
       (let ((annotate (alist-get 'annotation-function (acr-metadata captured-collection))))
         (should (string-match-p "the annotation" (funcall annotate "a")))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; annotated-completing-read — :multiple
+
+(defmacro acr-multi-with-mock (interactions &rest body)
+  "Drive a `:multiple' `annotated-completing-read' session through INTERACTIONS.
+INTERACTIONS is a list of (RESULT . SIGNAL) pairs, consumed one per prompt.
+RESULT is the string the mock user \"picked\" (or \"\"); SIGNAL is nil
+(finish), `continue' (M-,), or `discard' (M-.) — mirroring what
+`annotated-completing-read-multi-mode' commands set on
+`annotated-completing-read--multi-signal-box'.  Mocks
+`annotated-completing-read--multi-session' (a plain function) rather than
+`minibuffer-with-setup-hook' (a macro already expanded at the real call
+site, so mocking its `symbol-function' at test time has no effect).
+Within BODY, `captured-args-list' is bound to the list of argument lists
+`annotated-completing-read--multi-session' was called with — (SIGNAL-BOX
+PROMPT COLLECTION REQUIRE-MATCH INITIAL-INPUT HIST) — in call order."
+  (declare (indent 1))
+  `(let ((acr-multi--queue (copy-sequence ,interactions))
+         captured-args-list)
+     (cl-letf (((symbol-function 'annotated-completing-read--multi-session)
+                (lambda (&rest args)
+                  (setq captured-args-list (append captured-args-list (list args)))
+                  (let ((interaction (pop acr-multi--queue))
+                        (signal-box (car args)))
+                    (setcar signal-box (cdr interaction))
+                    (car interaction)))))
+       ,@body)))
+
+(ert-deftest annotated-completing-read/min-max-require-multiple ()
+  "MIN/MAX without :multiple t signal user-error."
+  (let ((table (acr-test--ht ("a" "1"))))
+    (should-error (annotated-completing-read table :min 1) :type 'user-error)
+    (should-error (annotated-completing-read table :max 1) :type 'user-error)))
+
+(ert-deftest annotated-completing-read/multiple-returns-list ()
+  "With :multiple t, the result is always a list."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2"))))
+    (acr-multi-with-mock (list (cons "a" nil))
+      (should (equal '("a") (annotated-completing-read table :multiple t))))))
+
+(ert-deftest annotated-completing-read/multiple-continue-accumulates ()
+  "M-, (signal `continue') accepts a pick and keeps prompting."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2") ("c" "3"))))
+    (acr-multi-with-mock (list (cons "a" 'continue) (cons "b" nil))
+      (should (equal '("a" "b") (annotated-completing-read table :multiple t))))))
+
+(ert-deftest annotated-completing-read/multiple-discard-drops-pending-input ()
+  "M-. (signal `discard') finishes without adding the current input as a pick."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2"))))
+    (acr-multi-with-mock (list (cons "a" 'continue) (cons "typed-filter" 'discard))
+      (should (equal '("a") (annotated-completing-read table :multiple t))))))
+
+(ert-deftest annotated-completing-read/multiple-exclusion-after-pick ()
+  "A picked candidate is excluded from the next prompt's candidates."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2"))))
+    (acr-multi-with-mock (list (cons "a" 'continue) (cons "" nil))
+      (annotated-completing-read table :multiple t)
+      (let* ((second-call (nth 1 captured-args-list))
+             (collection (nth 2 second-call))
+             (candidates (funcall collection "" nil t)))
+        (should-not (member "a" candidates))
+        (should (member "b" candidates))))))
+
+(ert-deftest annotated-completing-read/multiple-stops-when-table-exhausted ()
+  "The session ends once every candidate is picked, with no extra prompt."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2"))))
+    (acr-multi-with-mock (list (cons "a" 'continue) (cons "b" 'continue))
+      (should (equal '("a" "b") (annotated-completing-read table :multiple t)))
+      (should (= 2 (length captured-args-list))))))
+
+(ert-deftest annotated-completing-read/multiple-min-blocks-finish ()
+  "With :min 2, finishing is blocked until enough picks accumulate."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2") ("c" "3"))))
+    (acr-multi-with-mock (list (cons "a" nil) (cons "b" nil))
+      (should (equal '("a" "b") (annotated-completing-read table :multiple t :min 2))))))
+
+(ert-deftest annotated-completing-read/multiple-max-auto-finishes ()
+  "With :max 1, one pick ends the session immediately, even signalled `continue'."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2"))))
+    (acr-multi-with-mock (list (cons "a" 'continue))
+      (should (equal '("a") (annotated-completing-read table :multiple t :max 1)))
+      (should (= 1 (length captured-args-list))))))
+
+(ert-deftest annotated-completing-read/multiple-target-resolution ()
+  "Each pick resolves through TABLE's target mapping, like the single-pick path."
+  (let ((table '(("a" "ann" . :target-a) ("b" "ann" . :target-b))))
+    (acr-multi-with-mock (list (cons "a" 'continue) (cons "b" nil))
+      (should (equal '(:target-a :target-b) (annotated-completing-read table :multiple t))))))
+
+(ert-deftest annotated-completing-read/multiple-multi-category-tagged ()
+  "TARGET-bearing candidates carry a `multi-category' property when :category is set."
+  (let ((table '(("a" "ann" . :target-a) ("b" "ann"))))
+    (acr-multi-with-mock (list (cons "a" nil))
+      (annotated-completing-read table :multiple t :category 'my-type)
+      (let* ((collection (nth 2 (car captured-args-list)))
+             (candidates (funcall collection "" nil t))
+             (a (car (member "a" candidates)))
+             (b (car (member "b" candidates))))
+        (should (equal (cons 'my-type :target-a) (get-text-property 0 'multi-category a)))
+        (should-not (get-text-property 0 'multi-category b))))))
+
+(ert-deftest annotated-completing-read/multiple-no-multi-category-without-category-kw ()
+  "TARGET-bearing candidates are left unpropertized when :category is not set."
+  (let ((table '(("a" "ann" . :target-a))))
+    (acr-multi-with-mock (list (cons "a" nil))
+      (annotated-completing-read table :multiple t)
+      (let* ((collection (nth 2 (car captured-args-list)))
+             (candidates (funcall collection "" nil t))
+             (a (car (member "a" candidates))))
+        (should-not (get-text-property 0 'multi-category a))))))
+
+(ert-deftest annotated-completing-read/single-pick-multi-category-tagged ()
+  "Single-pick calls with a TARGET and :category are tagged too, not just :multiple."
+  (let ((table '(("a" "ann" . :target-a))))
+    (acr-with-mock table "a"
+      (annotated-completing-read table :category 'my-type)
+      (let* ((candidates (funcall captured-collection "" nil t))
+             (a (car (member "a" candidates))))
+        (should (equal (cons 'my-type :target-a) (get-text-property 0 'multi-category a)))))))
+
+(ert-deftest annotated-completing-read/multiple-history-stores-final-list ()
+  "History records one entry — the whole picked list — not one per pick."
+  (let ((annotated-completing-read-history (make-hash-table :test #'equal))
+        (this-command 'multi-test-command)
+        (table (acr-test--ht ("a" "1") ("b" "2"))))
+    (acr-multi-with-mock (list (cons "a" 'continue) (cons "b" nil))
+      (annotated-completing-read table :multiple t))
+    (should (equal '(("a" "b"))
+                   (map-elt annotated-completing-read-history 'multi-test-command)))))
+
+(ert-deftest annotated-completing-read/multiple-quit-returns-or-nil ()
+  "On quit mid-session, :or-nil t returns nil."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2"))))
+    (cl-letf (((symbol-function 'annotated-completing-read--multi-session)
+               (lambda (&rest _) (signal 'quit nil))))
+      (should-not (annotated-completing-read table :multiple t :or-nil t)))))
+
+(ert-deftest annotated-completing-read/multiple-quit-returns-default ()
+  "On quit mid-session, :default is returned verbatim (not wrapped)."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2"))))
+    (cl-letf (((symbol-function 'annotated-completing-read--multi-session)
+               (lambda (&rest _) (signal 'quit nil))))
+      (should (equal '("fallback")
+                     (annotated-completing-read table :multiple t :default '("fallback")))))))
+
+(ert-deftest annotated-completing-read/multiple-empty-table-returns-nil ()
+  "An empty table with :multiple t and no default/or-nil returns nil, unprompted."
+  (let ((table (make-hash-table :test #'equal))
+        called)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) (setq called t) "")))
+      (should-not (annotated-completing-read table :multiple t))
+      (should-not called))))
+
+(ert-deftest annotated-completing-read/multiple-empty-table-default-returned-verbatim ()
+  "An empty table with :multiple t and :default returns DEFAULT verbatim."
+  (let ((table (make-hash-table :test #'equal)))
+    (should (equal '("fallback")
+                   (annotated-completing-read table :multiple t :default '("fallback"))))))
+
+(ert-deftest annotated-completing-read/multiple-initial-input-first-iteration-only ()
+  "INITIAL-INPUT reaches only the first completing-read call."
+  (let ((table (acr-test--ht ("a" "1") ("b" "2"))))
+    (acr-multi-with-mock (list (cons "a" 'continue) (cons "b" nil))
+      (annotated-completing-read table :multiple t :initial-input "pre")
+      (should (equal "pre" (nth 4 (nth 0 captured-args-list))))
+      (should (null (nth 4 (nth 1 captured-args-list)))))))
+
+(ert-deftest annotated-completing-read/multiple-forwards-require-match ()
+  "REQUIRE-MATCH reaches each completing-read call under :multiple."
+  (let ((table (acr-test--ht ("a" "1"))))
+    (acr-multi-with-mock (list (cons "a" nil))
+      (annotated-completing-read table :multiple t :require-match t)
+      (should (eq t (nth 3 (car captured-args-list)))))))
+
+(ert-deftest annotated-completing-read/multiple-forwards-category-and-sort-fn ()
+  "CATEGORY and SORT-FN reach the collection metadata under :multiple."
+  (let* ((table (acr-test--ht ("a" "1")))
+         (my-sort (lambda (items) items)))
+    (acr-multi-with-mock (list (cons "a" nil))
+      (annotated-completing-read table :multiple t :category 'my-cat :sort-fn my-sort)
+      (let ((collection (nth 2 (car captured-args-list))))
+        (should (eq 'my-cat (alist-get 'category (acr-metadata collection))))
+        (should (eq my-sort (alist-get 'display-sort-function (acr-metadata collection))))))))
+
+(ert-deftest annotated-completing-read/multiple-forwards-group-name ()
+  "GROUP-NAME reaches the collection metadata under :multiple."
+  (let ((table (acr-test--ht ("a" "1"))))
+    (acr-multi-with-mock (list (cons "a" nil))
+      (annotated-completing-read table :multiple t :group-name "My Group")
+      (let* ((collection (nth 2 (car captured-args-list)))
+             (gfn (alist-get 'group-function (acr-metadata collection))))
+        (should (equal "My Group" (funcall gfn "a" nil)))))))
+
+(ert-deftest annotated-completing-read/multi-mode-does-not-bind-embark-act-key ()
+  "acr-multi-mode never shadows C-., which stays available for `embark-act'."
+  (should-not (lookup-key annotated-completing-read-multi-mode-map (kbd "C-."))))
+
+(ert-deftest annotated-completing-read/multi-mode-binds-continue-and-finish ()
+  "acr-multi-mode binds M-, and M-. to the continue/finish-now commands."
+  (should (eq #'annotated-completing-read--multi-continue
+              (lookup-key annotated-completing-read-multi-mode-map (kbd "M-,"))))
+  (should (eq #'annotated-completing-read--multi-finish-now
+              (lookup-key annotated-completing-read-multi-mode-map (kbd "M-.")))))
 
 (provide 'test-annotated-completing-read)
 ;;; test-annotated-completing-read.el ends here

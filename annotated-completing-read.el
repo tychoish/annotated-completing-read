@@ -68,7 +68,7 @@ the standard Emacs history lists accumulated by `completing-read'.")
 
 ;;;###autoload
 (cl-defun annotated-completing-read
-    (table &key (prompt "=> ") require-match category history group-name group-display initial-input sort-fn default or-nil)
+    (table &key (prompt "=> ") require-match category history group-name group-display initial-input sort-fn default or-nil multiple min max)
   "Read a candidate from TABLE with aligned per-candidate annotations.
 TABLE is any Emacs hash table `make-hash-table' mapping candidate
 strings to annotation strings.  Column alignment is computed
@@ -134,14 +134,84 @@ TARGET, when a table entry supplies one (via the triple-form list entry or
 a hash-table value of (ANNOTATION . TARGET)), is returned in place of the
 selected candidate string — including when the candidate is resolved via
 DEFAULT.  Entries with no target continue to return the candidate string,
-unchanged from prior behavior."
+unchanged from prior behavior.  When TARGET is present, its candidate string
+is also tagged with a `multi-category' text property so embark acts on
+TARGET rather than the display string; see
+`annotated-completing-read--tag-multi-category'.
+
+MULTIPLE, when non-nil, returns an ordered list of picks instead of a single
+string/target.  The session stays in one minibuffer prompt per pick, driven
+by `annotated-completing-read-multi-mode': \\<annotated-completing-read-multi-mode-map>\
+\\[annotated-completing-read--multi-continue] accepts the current input as a
+pick and prompts again with it excluded from TABLE;
+\\[annotated-completing-read--multi-finish-now] finishes immediately,
+discarding unaccepted pending input; plain RET accepts the current input (if
+any) as a final pick and finishes, matching the single-pick behavior of a
+`:multiple t' call with exactly one pick.  DEFAULT/OR-NIL apply to the whole
+call on quit or on an empty table, not per pick.
+
+MIN and MAX are only meaningful with MULTIPLE, and signal `user-error'
+otherwise.  MIN is the fewest picks required before RET/
+\\[annotated-completing-read--multi-finish-now] are honored; below it, the
+session keeps prompting.  MAX is a cap: reaching it ends the session
+immediately, as if \\[annotated-completing-read--multi-finish-now] had been
+pressed."
+  (when (and (or min max) (not multiple))
+    (user-error "MIN and MAX require MULTIPLE to be non-nil"))
   (let ((table (annotated-completing-read--to-map table)))
-  (when (and (or default or-nil) (zerop (map-length table)))
-    (cl-return-from annotated-completing-read
-      (annotated-completing-read--resolve-target table default)))
-  (let* ((prompt (if (string-suffix-p " " prompt) prompt (concat prompt " ")))
-         (hist-key (or history this-command 'annotated-completing-read))
-         (longest (annotated-completing-read--length-of-longest (map-keys table)))
+    (when (and (or default or-nil) (zerop (map-length table)))
+      (cl-return-from annotated-completing-read
+        (if multiple default (annotated-completing-read--resolve-target table default))))
+    (if multiple
+        (annotated-completing-read--read-multiple
+         table prompt require-match category history group-name group-display
+         initial-input sort-fn default or-nil min max)
+      (let* ((prompt (if (string-suffix-p " " prompt) prompt (concat prompt " ")))
+             (hist-key (or history this-command 'annotated-completing-read))
+             (collection (annotated-completing-read--build-collection
+                          table category group-name group-display sort-fn))
+             (hist-sym (make-symbol "history-cell")))
+        (annotated-completing-read--ensure-history)
+        (set hist-sym (map-elt annotated-completing-read-history hist-key))
+        (let ((result (condition-case err
+                          (completing-read prompt collection nil require-match initial-input hist-sym default)
+                        (quit (cond (default default)
+                                    (or-nil nil)
+                                    (t (signal (car err) (cdr err))))))))
+          (annotated-completing-read--ensure-history)
+          (setf (map-elt annotated-completing-read-history hist-key) (symbol-value hist-sym))
+          (cond
+           ((not (equal result "")) (annotated-completing-read--resolve-target table result))
+           (default (annotated-completing-read--resolve-target table default))
+           (or-nil nil)
+           (t result)))))))
+
+(defun annotated-completing-read--tag-multi-category (table category)
+  "Return TABLE's candidate keys, propertizing TARGET-bearing ones.
+Each candidate whose TABLE value is a cons (ANNOTATION . TARGET) is
+propertized with a `multi-category' text property of (CATEGORY . TARGET) —
+the mechanism embark already ships a transformer for in
+`embark-transformer-alist', so embark resolves TARGET with no further setup.
+Candidates are left unpropertized when CATEGORY is nil, since there is then
+no type for embark to dispatch on."
+  (if (not category)
+      (map-keys table)
+    (thread-last (map-keys table)
+      (seq-map (lambda (candidate)
+                 (let ((value (map-elt table candidate)))
+                   (if (consp value)
+                       (propertize candidate 'multi-category (cons category (cdr value)))
+                     candidate)))))))
+
+(defun annotated-completing-read--build-collection (table category group-name group-display sort-fn)
+  "Return a completion COLLECTION function for TABLE.
+CATEGORY, GROUP-NAME, GROUP-DISPLAY, and SORT-FN have the same meaning as in
+`annotated-completing-read'.  Shared by the single-pick and `:multiple' code
+paths so annotation/grouping/sorting behave identically in both; the
+`:multiple' loop calls this again each iteration so it recomputes from
+whatever TABLE remains after excluding prior picks."
+  (let* ((candidates (annotated-completing-read--tag-multi-category table category))
+         (longest (annotated-completing-read--length-of-longest candidates))
          (annotate-fn (lambda (candidate)
                         (when-let* ((value (map-elt table candidate))
                                     (ann (if (consp value) (car value) value)))
@@ -156,38 +226,124 @@ unchanged from prior behavior."
                      (lambda (candidate transform)
                        (if transform
                            (funcall display-fn candidate)
-                         (funcall name-fn candidate)))))
-         (collection (lambda (str pred action)
-                       (if (eq action 'metadata)
-                           `(metadata
-                             (annotation-function . ,annotate-fn)
-                             ,@(when category `((category . ,category)))
-                             ,@(when group-fn `((group-function . ,group-fn)))
-                             ,@(when sort-fn `((display-sort-function . ,sort-fn))))
-                         (complete-with-action action (map-keys table) str pred))))
-         (hist-sym (make-symbol "history-cell")))
+                         (funcall name-fn candidate))))))
+    (lambda (str pred action)
+      (if (eq action 'metadata)
+          `(metadata
+            (annotation-function . ,annotate-fn)
+            ,@(when category `((category . ,category)))
+            ,@(when group-fn `((group-function . ,group-fn)))
+            ,@(when sort-fn `((display-sort-function . ,sort-fn))))
+        (complete-with-action action candidates str pred)))))
+
+(defvar-local annotated-completing-read--multi-signal-box nil
+  "Mutable one-element list set by `annotated-completing-read-multi-mode'
+commands to tell the `:multiple' loop in `annotated-completing-read' what the
+user just requested.  Car is nil (finish, accepting the current input as the
+last pick), `continue' (accept and prompt again), or `discard' (finish now,
+ignoring the current input).")
+
+(defvar-keymap annotated-completing-read-multi-mode-map
+  :doc "Keymap active in the minibuffer during a `:multiple' ACR session.
+Deliberately does not bind `C-.', which stays available for `embark-act' —
+see the Design section of the ACR multi-select plan for why."
+  "M-," #'annotated-completing-read--multi-continue
+  "M-." #'annotated-completing-read--multi-finish-now)
+
+(define-minor-mode annotated-completing-read-multi-mode
+  "Minor mode enabling `M-,'/`M-.' for a `:multiple' ACR session.
+`M-,' accepts the current input as a pick and continues the session;
+`M-.' finishes the session now, discarding any unaccepted pending input."
+  :lighter " ACR-multi"
+  :keymap annotated-completing-read-multi-mode-map)
+
+(defun annotated-completing-read--multi-continue ()
+  "Accept the current minibuffer input as a pick and continue the session."
+  (interactive)
+  (setcar annotated-completing-read--multi-signal-box 'continue)
+  (exit-minibuffer))
+
+(defun annotated-completing-read--multi-finish-now ()
+  "Finish the `:multiple' session now, discarding unaccepted pending input."
+  (interactive)
+  (setcar annotated-completing-read--multi-signal-box 'discard)
+  (exit-minibuffer))
+
+(defun annotated-completing-read--multi-session
+    (signal-box prompt collection require-match initial-input hist)
+  "Run one `completing-read' call with `annotated-completing-read-multi-mode'.
+SIGNAL-BOX is the mutable box `annotated-completing-read--multi-continue'
+and `annotated-completing-read--multi-finish-now' set; the other arguments
+are `completing-read' arguments, forwarded unchanged.  A plain function
+\(not `minibuffer-with-setup-hook' inlined at the call site) so tests can
+replace it with a mock instead of trying to override a macro's already-
+expanded call site."
+  (minibuffer-with-setup-hook
+      (lambda ()
+        (setq-local annotated-completing-read--multi-signal-box signal-box)
+        (annotated-completing-read-multi-mode 1))
+    (completing-read prompt collection nil require-match initial-input hist)))
+
+(defun annotated-completing-read--read-multiple
+    (table prompt require-match category history group-name group-display
+           initial-input sort-fn default or-nil min max)
+  "Run the `:multiple' loop for `annotated-completing-read' against TABLE.
+Returns an ordered list of resolved picks.  See `annotated-completing-read'
+for the meaning of every parameter, and `annotated-completing-read-multi-mode'
+for the `M-,'/`M-.' bindings that drive the loop.  Covered by direct ERT
+tests in test-annotated-completing-read.el, so kept as its own function
+despite having exactly one call site."
+  (let* ((prompt (if (string-suffix-p " " prompt) prompt (concat prompt " ")))
+         (hist-key (or history this-command 'annotated-completing-read))
+         (working-table (copy-hash-table table))
+         (picks nil)
+         (iteration 0)
+         (outcome
+          (catch 'annotated-completing-read--multi-done
+            (while t
+              (when (zerop (map-length working-table))
+                (throw 'annotated-completing-read--multi-done 'done))
+              (let* ((collection (annotated-completing-read--build-collection
+                                  working-table category group-name group-display sort-fn))
+                     (session-prompt (format "[%d] %s" (length picks) prompt))
+                     (scratch-hist (make-symbol "history-cell"))
+                     (signal-box (list nil))
+                     (result
+                      (condition-case _err
+                          (annotated-completing-read--multi-session
+                           signal-box session-prompt collection require-match
+                           (when (zerop iteration) initial-input) scratch-hist)
+                        (quit (throw 'annotated-completing-read--multi-done 'quit)))))
+                (cl-incf iteration)
+                (let ((discard (eq (car signal-box) 'discard))
+                      (continue (eq (car signal-box) 'continue)))
+                  (unless (or discard (string-empty-p result))
+                    (push (annotated-completing-read--resolve-target working-table result) picks)
+                    (remhash result working-table))
+                  (cond
+                   (continue)
+                   ((and min (< (length picks) min))
+                    (message "At least %d selection%s required (%d so far)"
+                             min (if (= min 1) "" "s") (length picks)))
+                   (t (throw 'annotated-completing-read--multi-done 'done)))
+                  (when (and max (>= (length picks) max))
+                    (throw 'annotated-completing-read--multi-done 'done))))))))
+    (setq picks (nreverse picks))
     (annotated-completing-read--ensure-history)
-    (set hist-sym (map-elt annotated-completing-read-history hist-key))
-    (let ((result (condition-case err
-                      (completing-read prompt collection nil require-match initial-input hist-sym default)
-                    (quit (cond (default default)
-                                (or-nil nil)
-                                (t (signal (car err) (cdr err))))))))
-      (annotated-completing-read--ensure-history)
-      (setf (map-elt annotated-completing-read-history hist-key) (symbol-value hist-sym))
-      (cond
-        ((not (equal result "")) (annotated-completing-read--resolve-target table result))
-        (default (annotated-completing-read--resolve-target table default))
-        (or-nil nil)
-        (t result))))))
+    (setf (map-elt annotated-completing-read-history hist-key) (list picks))
+    (pcase outcome
+      ('quit (cond (or-nil nil) (default default) (t (signal 'quit nil))))
+      (_ picks))))
 
 ;;;###autoload
-(cl-defun annotated-completing-read-directory (&optional &key candidates prompt require-match)
+(cl-defun annotated-completing-read-directory
+    (&optional &key candidates prompt require-match multiple min max)
   "Select a directory with annotated completion.
 CANDIDATES is an explicit list of directory paths; if nil, a context-aware
 list is computed from the project root, open buffers, and `thing-at-point'.
-PROMPT defaults to \"directory: \".  REQUIRE-MATCH is passed through to
-`annotated-completing-read'.
+PROMPT defaults to \"directory: \".  REQUIRE-MATCH, MULTIPLE, MIN, and MAX
+are passed through to `annotated-completing-read' unchanged — see its
+docstring for what MULTIPLE/MIN/MAX do.
 
 With 8 or fewer candidates the annotation shows the directory's relationship
 to the current directory (\"parent\", \"project root\", etc.).  With more
@@ -221,6 +377,9 @@ annotation shows entry counts instead."
 	 counts
 	 :prompt (or prompt "directory:")
 	 :require-match require-match
+	 :multiple multiple
+	 :min min
+	 :max max
 	 :group-name (lambda (c) (car (map-elt relationship c '("other" . 10))))
 	 :sort-fn (lambda (candidates)
 		    (seq-sort-by (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
@@ -237,6 +396,9 @@ annotation shows entry counts instead."
         'hash-table)
        :prompt (or prompt "directory:")
        :require-match require-match
+       :multiple multiple
+       :min min
+       :max max
        :sort-fn (lambda (candidates)
 		  (seq-sort-by (lambda (c) (cdr (map-elt relationship c '("other" . 10))))
 			       #'< candidates))))))

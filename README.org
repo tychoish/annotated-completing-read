@@ -1,4 +1,4 @@
-#+TITLE: annotated-completing-read -- rich ergonomic completing-read
+#+TITLE: annotated-completing-read -- rich ergonomic completion interface
 #+OPTIONS: toc:2 num:nil
 
 * Overview
@@ -25,8 +25,8 @@ mold to you over time.
   - [[#use-package][Use Package]]
   - [[#manual][Manual]]
 - [[#api-reference][API Reference]]
-  - [[#annotated-completing-read-annotation-face-variable][~annotated-completing-read-annotation-face~ [Variable]]]
-  - [[#annotated-completing-read-history-variable][~annotated-completing-read-history~ [Variable]]]
+  - [[#annotated-completing-read-annotation-face-variable][~annotated-completing-read-annotation-face~ (Variable)]]
+  - [[#annotated-completing-read-history-variable][~annotated-completing-read-history~ (Variable)]]
   - [[#annotated-completing-read][~annotated-completing-read~]]
   - [[#annotated-completing-read-directory][~annotated-completing-read-directory~]]
   - [[#annotated-completing-read-context-from-point][~annotated-completing-read-context-from-point~]]
@@ -101,13 +101,13 @@ Additional symbol kinds are controlled by `include-kinds':
 #+END_SRC
 
 #+RESULTS:
-** ~annotated-completing-read-annotation-face~ [Variable]
+** ~annotated-completing-read-annotation-face~ (Variable)
 
 Controls how face properties are applied to annotation strings.
 
 ‘default’  — apply ‘completions-annotations’ to annotations that carry no face text property.  This is the default. ‘override’ — always apply ‘completions-annotations’, overriding any existing face. ‘strip’    — remove all face text properties from annotations. Any other symbol — treat it as a face name and apply it to annotations that carry no face text property.
 
-** ~annotated-completing-read-history~ [Variable]
+** ~annotated-completing-read-history~ (Variable)
 
 Hash table mapping command symbols to per-command minibuffer history lists. Keys are symbols — typically ‘this-command’ at call time — and values are the standard Emacs history lists accumulated by ‘completing-read’.
 
@@ -172,7 +172,6 @@ Select a string from context-aware candidates with PROMPT. Candidates are drawn 
 HISTORY is a symbol passed to ‘annotated-completing-read’ to scope the per-command history; defaults to ‘this-command’, giving each calling command its own isolated history.
 
 Returns the emptry string if there are no options or no selections.
-
 
 * License
 

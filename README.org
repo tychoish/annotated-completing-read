@@ -1,11 +1,11 @@
-#+TITLE: annotated-completing-read -- ergonomic completing-read with annotations
+#+TITLE: annotated-completing-read -- rich ergonomic completing-read
 #+OPTIONS: toc:2 num:nil
 
 * Overview
-==annotated-completing-read== (acr) is a thin wrapper around the standard emacs
+=annotated-completing-read= (acr) is a thin wrapper around the standard emacs
 =completing-read= facility, with a more ergonomic (lisp) interface. It shares a
-lot with =consult--read=, but it's lightweight and is part of a public API. And
-of course, and works well with [[https://github.com/minad/vertico][vertico]] (and other minibuffer completion
+lot with =consult--read=, but it's more lightweight, is part of a public
+API. And of course, and works well with [[https://github.com/minad/vertico][vertico]] (and other minibuffer completion
 interfaces), [[https://github.com/oantolin/marginalia][marginalia]], and [[https://github.com/oantolin/embark][embark]] (and related tooling).
 
 The =annotated-completing-read= function has intuitive, easy to read semantics:
@@ -13,7 +13,7 @@ keyword arguments for all optional arguments, selection options are a mapping
 (hashmap or alist) of options-to-annotations. There are some (bonus) helpers for
 selecting a directory from a list of likely options and providing a list of
 "dwim" options that includes recent kill-ring items, thing-at-point (and other
-likely candidates). Finally, ==annotated-completing-read== manages tracking
+likely candidates). Finally, =annotated-completing-read= manages tracking
 history of command selections, so that the order that options are presented to
 mold to you over time.
 
@@ -113,7 +113,7 @@ Hash table mapping command symbols to per-command minibuffer history lists. Keys
 
 ** ~annotated-completing-read~
 
-: (fn TABLE &key (PROMPT "=> ") REQUIRE-MATCH CATEGORY HISTORY GROUP-NAME GROUP-DISPLAY INITIAL-INPUT SORT-FN DEFAULT OR-NIL)
+: (fn TABLE &key (PROMPT "=> ") REQUIRE-MATCH CATEGORY HISTORY GROUP-NAME GROUP-DISPLAY INITIAL-INPUT SORT-FN DEFAULT OR-NIL MULTIPLE MIN MAX)
 
 Read a candidate from TABLE with aligned per-candidate annotations. TABLE is any Emacs hash table ‘make-hash-table’ mapping candidate strings to annotation strings.  Column alignment is computed automatically; callers need not pad candidates or annotations.
 
@@ -147,13 +147,19 @@ DEFAULT is a string returned when TABLE is empty (no prompt is shown), the user 
 
 OR-NIL, when non-nil, silences C-g and empty input by returning nil instead.  Useful when the caller treats nil as "nothing selected" without needing a specific fallback string.  Takes effect only when DEFAULT is nil; DEFAULT takes precedence.
 
-TABLE may be a hash table, a dotted alist ((CANDIDATE . ANNOTATION) ...), or a list-form alist ((CANDIDATE ANNOTATION) ...).  ANNOTATION may be nil to suppress the annotation for that candidate.  Signals ‘user-error’ for any other type.
+TABLE may be a hash table, a dotted alist ((CANDIDATE . ANNOTATION) ...), a list-form alist ((CANDIDATE ANNOTATION) ...), or a triple-form alist ((CANDIDATE ANNOTATION . TARGET) ...).  ANNOTATION may be nil to suppress the annotation for that candidate.  Signals ‘user-error’ for any other type.
+
+TARGET, when a table entry supplies one (via the triple-form list entry or a hash-table value of (ANNOTATION . TARGET)), is returned in place of the selected candidate string — including when the candidate is resolved via DEFAULT.  Entries with no target continue to return the candidate string, unchanged from prior behavior.  When TARGET is present, its candidate string is also tagged with a ‘multi-category’ text property so embark acts on TARGET rather than the display string; see ‘annotated-completing-read--tag-multi-category’.
+
+MULTIPLE, when non-nil, returns an ordered list of picks instead of a single string/target.  The session stays in one minibuffer prompt per pick, driven by ‘annotated-completing-read-multi-mode’: M-, accepts the current input as a pick and prompts again with it excluded from TABLE; M-. finishes immediately, discarding unaccepted pending input; plain RET accepts the current input (if any) as a final pick and finishes, matching the single-pick behavior of a ‘:multiple t’ call with exactly one pick.  DEFAULT/OR-NIL apply to the whole call on quit or on an empty table, not per pick.
+
+MIN and MAX are only meaningful with MULTIPLE, and signal ‘user-error’ otherwise.  MIN is the fewest picks required before RET/ M-. are honored; below it, the session keeps prompting.  MAX is a cap: reaching it ends the session immediately, as if M-. had been pressed.
 
 ** ~annotated-completing-read-directory~
 
-: (fn &optional &key CANDIDATES PROMPT REQUIRE-MATCH)
+: (fn &optional &key CANDIDATES PROMPT REQUIRE-MATCH MULTIPLE MIN MAX)
 
-Select a directory with annotated completion. CANDIDATES is an explicit list of directory paths; if nil, a context-aware list is computed from the project root, open buffers, and ‘thing-at-point’. PROMPT defaults to "directory: ".  REQUIRE-MATCH is passed through to ‘annotated-completing-read’.
+Select a directory with annotated completion. CANDIDATES is an explicit list of directory paths; if nil, a context-aware list is computed from the project root, open buffers, and ‘thing-at-point’. PROMPT defaults to "directory: ".  REQUIRE-MATCH, MULTIPLE, MIN, and MAX are passed through to ‘annotated-completing-read’ unchanged — see its docstring for what MULTIPLE/MIN/MAX do.
 
 With 8 or fewer candidates the annotation shows the directory’s relationship to the current directory ("parent", "project root", etc.).  With more than 8 candidates candidates are grouped by that relationship label and the annotation shows entry counts instead.
 
@@ -166,6 +172,8 @@ Select a string from context-aware candidates with PROMPT. Candidates are drawn 
 HISTORY is a symbol passed to ‘annotated-completing-read’ to scope the per-command history; defaults to ‘this-command’, giving each calling command its own isolated history.
 
 Returns the emptry string if there are no options or no selections.
+
+
 * License
 
 Copyright (C) tychoish. GPL-3.0 or later. See the source file header

@@ -62,100 +62,70 @@ Keys are symbols — typically `this-command' at call time — and values are
 the standard Emacs history lists accumulated by `completing-read'.")
 
 (defun annotated-completing-read-clear-history ()
-  "Reset the annotated-completing-read per-command history to an empty state."
+  "Clear the per-command completion history."
   (interactive)
   (setq annotated-completing-read-history (make-hash-table :test #'equal)))
 
 ;;;###autoload
 (cl-defun annotated-completing-read
     (table &key (prompt "=> ") require-match category history group-name group-display initial-input sort-fn default or-nil multiple min max)
-  "Read a candidate from TABLE with aligned per-candidate annotations.
-TABLE is any Emacs hash table `make-hash-table' mapping candidate
-strings to annotation strings.  Column alignment is computed
-automatically; callers need not pad candidates or annotations.
+  "Read a candidate from completion TABLE.
+TABLE maps candidates to annotations or target values.
+Alignment is automatic.
 
-PROMPT is the minibuffer prompt (default \"=> \"); a trailing space is appended
-automatically if absent.
+TABLE can be a hash table or an alist.
+A list-form alist uses the format: ((CANDIDATE ANNOTATION) ...).
+A dotted alist uses the format: ((CANDIDATE . ANNOTATION) ...).
+A triple-form alist uses the format: ((CANDIDATE ANNOTATION . TARGET) ...).
+An annotation can be nil.
 
-REQUIRE-MATCH, when non-nil, forces the user to select an existing candidate.
-When nil (the default), arbitrary input not present in TABLE is accepted and
-returned verbatim.
+PROMPT is the minibuffer prompt. It defaults to \"=> \".
+A trailing space is appended if it is missing.
 
-CATEGORY is an optional completion-category symbol surfaced as table metadata.
-Completion UIs (vertico, embark, marginalia) use it to select annotations,
-keybindings, and actions.  Common values:
+REQUIRE-MATCH forces the user to select an existing candidate.
+If nil, the minibuffer accepts arbitrary input.
 
-  `file'              – file-name actions, path display via marginalia
-  `buffer'            – buffer switching and embark buffer actions
-  `command'           – executed-extended-command dispatch
-  `symbol'            – Lisp symbol lookup and eldoc integration
-  `bookmark'          – `bookmark-jump' actions
-  `consult-grep'      – `consult-grep' result actions (jump to line, etc.)
-  `consult-mu'        – `consult-mu' mail account entries
+CATEGORY is a symbol for the completion category.
+External packages like embark or marginalia use it to determine behavior.
+Common values include `file', `buffer', `command', and `symbol'.
 
-HISTORY is a symbol key into `annotated-completing-read-history' (a hash table
-of per-command history lists).  Defaults to `this-command' captured at call
-time, giving each command its own isolated history automatically.  Pass an
-explicit symbol to share history across several call sites.
+HISTORY is a symbol representing the history list.
+It defaults to `this-command'.
+Use a shared symbol to share history between commands.
 
-GROUP-NAME is a function (CANDIDATE) => group-name-string that returns which
-group a candidate belongs to, or a plain string for a single constant group.
-When nil, no grouping metadata is emitted.
+GROUP-NAME determines candidate grouping.
+It can be a function or a static string.
 
-GROUP-DISPLAY is an optional function (CANDIDATE) => display-string that
-controls how a candidate is rendered within its group.  Defaults to identity
-where candidate are displayed verbatim.  Only meaningful when GROUP-NAME is set.
+GROUP-DISPLAY formats the candidate text for display.
+It is a function that takes a candidate string.
+This option requires GROUP-NAME.
 
-Together GROUP-NAME and GROUP-DISPLAY are assembled into the `group-function'
-completion metadata entry expected by vertico and other UIs.
+INITIAL-INPUT is an optional string to pre-fill in the minibuffer.
 
-INITIAL-INPUT is an optional string pre-filled into the minibuffer.
+SORT-FN is a function to sort candidates before display.
 
-SORT-FN is an optional function (LIST-OF-STRINGS) => LIST-OF-STRINGS that
-reorders candidates before display.  Surfaced as `display-sort-function' in
-completion metadata, so vertico and other UIs apply it before rendering.
+DEFAULT is the fallback return value.
+It is returned on empty input or quit.
 
-DEFAULT is a string returned when TABLE is empty (no prompt is shown), the
-user accepts empty input, or the user quits with \\[keyboard-quit].  When
-non-nil it is also passed to `completing-read' as its DEF argument so
-completion UIs can display it in the prompt.
+OR-NIL silences quit and empty input by returning nil.
+This option takes effect only when DEFAULT is nil.
 
-OR-NIL, when non-nil, silences \\[keyboard-quit] and empty input by returning
-nil instead.  Useful when the caller treats nil as \"nothing selected\" without
-needing a specific fallback string.  Takes effect only when DEFAULT is nil;
-DEFAULT takes precedence.
+A table entry can supply an optional TARGET.
+This TARGET is returned instead of the candidate string.
+It also affects selection via DEFAULT.
+It allows packages like embark to act on the target directly.
 
-TABLE may be a hash table, a dotted alist ((CANDIDATE . ANNOTATION) ...), a
-list-form alist ((CANDIDATE ANNOTATION) ...), or a triple-form alist
-\((CANDIDATE ANNOTATION . TARGET) ...).  ANNOTATION may be nil to suppress
-the annotation for that candidate.  Signals `user-error' for any other type.
+MULTIPLE allows selecting multiple candidates.
+It returns an ordered list of selections.
+Press \\[annotated-completing-read--multi-continue] to accept a pick and continue.
+Press \\[annotated-completing-read--multi-finish-now] to finish immediately.
+Pressing RET accepts the current input and finishes.
+DEFAULT and OR-NIL apply to the entire session.
 
-TARGET, when a table entry supplies one (via the triple-form list entry or
-a hash-table value of (ANNOTATION . TARGET)), is returned in place of the
-selected candidate string — including when the candidate is resolved via
-DEFAULT.  Entries with no target continue to return the candidate string,
-unchanged from prior behavior.  When TARGET is present, its candidate string
-is also tagged with a `multi-category' text property so embark acts on
-TARGET rather than the display string; see
-`annotated-completing-read--tag-multi-category'.
-
-MULTIPLE, when non-nil, returns an ordered list of picks instead of a single
-string/target.  The session stays in one minibuffer prompt per pick, driven
-by `annotated-completing-read-multi-mode': \\<annotated-completing-read-multi-mode-map>\
-\\[annotated-completing-read--multi-continue] accepts the current input as a
-pick and prompts again with it excluded from TABLE;
-\\[annotated-completing-read--multi-finish-now] finishes immediately,
-discarding unaccepted pending input; plain RET accepts the current input (if
-any) as a final pick and finishes, matching the single-pick behavior of a
-`:multiple t' call with exactly one pick.  DEFAULT/OR-NIL apply to the whole
-call on quit or on an empty table, not per pick.
-
-MIN and MAX are only meaningful with MULTIPLE, and signal `user-error'
-otherwise.  MIN is the fewest picks required before RET/
-\\[annotated-completing-read--multi-finish-now] are honored; below it, the
-session keeps prompting.  MAX is a cap: reaching it ends the session
-immediately, as if \\[annotated-completing-read--multi-finish-now] had been
-pressed."
+MIN is the minimum number of required selections.
+MAX is the maximum number of allowed selections.
+Reaching MAX finishes the session automatically.
+These options require MULTIPLE."
   (when (and (or min max) (not multiple))
     (user-error "MIN and MAX require MULTIPLE to be non-nil"))
   (let ((table (annotated-completing-read--to-map table)))
@@ -187,13 +157,10 @@ pressed."
            (t result)))))))
 
 (defun annotated-completing-read--tag-multi-category (table category)
-  "Return TABLE's candidate keys, propertizing TARGET-bearing ones.
-Each candidate whose TABLE value is a cons (ANNOTATION . TARGET) is
-propertized with a `multi-category' text property of (CATEGORY . TARGET) —
-the mechanism embark already ships a transformer for in
-`embark-transformer-alist', so embark resolves TARGET with no further setup.
-Candidates are left unpropertized when CATEGORY is nil, since there is then
-no type for embark to dispatch on."
+  "Return candidate keys from TABLE.
+Candidates with a target value are annotated with CATEGORY.
+This allows tools like embark to act on the target directly.
+No annotations are added if CATEGORY is nil."
   (if (not category)
       (map-keys table)
     (thread-last (map-keys table)
@@ -205,11 +172,8 @@ no type for embark to dispatch on."
 
 (defun annotated-completing-read--build-collection (table category group-name group-display sort-fn)
   "Return a completion COLLECTION function for TABLE.
-CATEGORY, GROUP-NAME, GROUP-DISPLAY, and SORT-FN have the same meaning as in
-`annotated-completing-read'.  Shared by the single-pick and `:multiple' code
-paths so annotation/grouping/sorting behave identically in both; the
-`:multiple' loop calls this again each iteration so it recomputes from
-whatever TABLE remains after excluding prior picks."
+CATEGORY, GROUP-NAME, GROUP-DISPLAY, and SORT-FN specify metadata.
+These arguments have the same meaning as in `annotated-completing-read'."
   (let* ((candidates (annotated-completing-read--tag-multi-category table category))
          (longest (annotated-completing-read--length-of-longest candidates))
          (annotate-fn (lambda (candidate)
@@ -251,33 +215,29 @@ see the Design section of the ACR multi-select plan for why."
   "M-." #'annotated-completing-read--multi-finish-now)
 
 (define-minor-mode annotated-completing-read-multi-mode
-  "Minor mode enabling `M-,'/`M-.' for a `:multiple' ACR session.
-`M-,' accepts the current input as a pick and continues the session;
-`M-.' finishes the session now, discarding any unaccepted pending input."
+  "Minor mode for multi-select completion sessions.
+Press `M-,' to accept the current input and continue.
+Press `M-.' to finish the session and discard pending input."
   :lighter " ACR-multi"
   :keymap annotated-completing-read-multi-mode-map)
 
 (defun annotated-completing-read--multi-continue ()
-  "Accept the current minibuffer input as a pick and continue the session."
+  "Accept the current selection and prompt for the next one."
   (interactive)
   (setcar annotated-completing-read--multi-signal-box 'continue)
   (exit-minibuffer))
 
 (defun annotated-completing-read--multi-finish-now ()
-  "Finish the `:multiple' session now, discarding unaccepted pending input."
+  "Finish the session and discard any pending input."
   (interactive)
   (setcar annotated-completing-read--multi-signal-box 'discard)
   (exit-minibuffer))
 
 (defun annotated-completing-read--multi-session
     (signal-box prompt collection require-match initial-input hist)
-  "Run one `completing-read' call with `annotated-completing-read-multi-mode'.
-SIGNAL-BOX is the mutable box `annotated-completing-read--multi-continue'
-and `annotated-completing-read--multi-finish-now' set; the other arguments
-are `completing-read' arguments, forwarded unchanged.  A plain function
-\(not `minibuffer-with-setup-hook' inlined at the call site) so tests can
-replace it with a mock instead of trying to override a macro's already-
-expanded call site."
+  "Run a single multi-select completion step.
+SIGNAL-BOX receives control signals from the user.
+Other arguments are forwarded to `completing-read'."
   (minibuffer-with-setup-hook
       (lambda ()
         (setq-local annotated-completing-read--multi-signal-box signal-box)
@@ -287,12 +247,9 @@ expanded call site."
 (defun annotated-completing-read--read-multiple
     (table prompt require-match category history group-name group-display
            initial-input sort-fn default or-nil min max)
-  "Run the `:multiple' loop for `annotated-completing-read' against TABLE.
-Returns an ordered list of resolved picks.  See `annotated-completing-read'
-for the meaning of every parameter, and `annotated-completing-read-multi-mode'
-for the `M-,'/`M-.' bindings that drive the loop.  Covered by direct ERT
-tests in test-annotated-completing-read.el, so kept as its own function
-despite having exactly one call site."
+  "Read multiple selections from TABLE.
+This function returns an ordered list of resolved targets.
+Parameters match `annotated-completing-read'."
   (let* ((prompt (if (string-suffix-p " " prompt) prompt (concat prompt " ")))
          (hist-key (or history this-command 'annotated-completing-read))
          (working-table (copy-hash-table table))
@@ -338,17 +295,12 @@ despite having exactly one call site."
 ;;;###autoload
 (cl-defun annotated-completing-read-directory
     (&optional &key candidates prompt require-match multiple min max)
-  "Select a directory with annotated completion.
-CANDIDATES is an explicit list of directory paths; if nil, a context-aware
-list is computed from the project root, open buffers, and `thing-at-point'.
-PROMPT defaults to \"directory: \".  REQUIRE-MATCH, MULTIPLE, MIN, and MAX
-are passed through to `annotated-completing-read' unchanged — see its
-docstring for what MULTIPLE/MIN/MAX do.
-
-With 8 or fewer candidates the annotation shows the directory's relationship
-to the current directory (\"parent\", \"project root\", etc.).  With more
-than 8 candidates candidates are grouped by that relationship label and the
-annotation shows entry counts instead."
+  "Select a directory using annotated completion.
+CANDIDATES is an optional list of directory paths.
+If nil, candidates are gathered from the current context.
+PROMPT is the minibuffer prompt. It defaults to \"directory: \".
+Other arguments match `annotated-completing-read'.
+Annotations show directory relationships or entry counts."
   (let* ((dirs (or (annotated-completing-read--directory-clean candidates)
                   (annotated-completing-read--directory-default-candidates)))
 	(project-root (annotated-completing-read--project-root))
@@ -405,17 +357,12 @@ annotation shows entry counts instead."
 
 ;;;###autoload
 (cl-defun annotated-completing-read-context-from-point (&optional &key prompt seed initial-input history)
-  "Select a string from context-aware candidates with PROMPT.
-Candidates are drawn from `thing-at-point', the active region, the current
-line, the kill ring, and any explicit SEED strings.  SEED may be a
-string or a list of strings.  Callers can specify INITIAL-INPUT to
-control an initial selection.
-
-HISTORY is a symbol passed to `annotated-completing-read' to scope the
-per-command history; defaults to `this-command', giving each calling
-command its own isolated history.
-
-Returns the emptry string if there are no options or no selections."
+  "Select a candidate from the current editing context.
+PROMPT is the minibuffer prompt.
+SEED specifies explicit candidate strings.
+INITIAL-INPUT is the initial minibuffer text.
+HISTORY specifies the history list.
+This function returns an empty string if no candidate is chosen."
   (annotated-completing-read
    (annotated-completing-read--context-candidates seed)
    :require-match nil
@@ -431,20 +378,14 @@ Returns the emptry string if there are no options or no selections."
   (make-string (abs (+ 4 (- longest (length key)))) ?\s))
 
 (defun annotated-completing-read--validate-hash-value (value)
-  "Signal `user-error' unless VALUE is a valid hash-table candidate value.
-VALUE must be a string or nil (a plain annotation, no target) or a cons
-\(ANNOTATION . TARGET).  Any other shape is rejected, since a hash-table
-annotation cannot otherwise be told apart from a target pair."
+  "Validate a hash table entry VALUE.
+VALUE must be a string, nil, or a cons cell."
   (unless (or (stringp value) (null value) (consp value))
     (user-error "Hash-table annotation must be a string, nil, or (ANNOTATION . TARGET); got: %S" value)))
 
 (defun annotated-completing-read--normalize-alist-value (value)
-  "Normalize an alist entry VALUE to ANNOTATION or (ANNOTATION . TARGET).
-VALUE may be a plain annotation (a string or nil, from a dotted alist
-entry), a single-element list (ANNOTATION) (from a list-form alist
-entry), or (ANNOTATION . TARGET) (from a triple-form entry).  The result
-uses the same shape as a hash-table value: a bare annotation means no
-target; a cons carries an explicit target in its cdr."
+  "Normalize an alist value.
+The returned value is an annotation string or an annotation-target pair."
   (cond
    ((and (consp value) (cdr value))
     (cons (car value) (cdr value)))
@@ -454,28 +395,17 @@ target; a cons carries an explicit target in its cdr."
     value)))
 
 (defun annotated-completing-read--resolve-target (table candidate)
-  "Resolve CANDIDATE's return value from TABLE.
-When TABLE's value for CANDIDATE is a cons, its cdr is the target and is
-returned.  Otherwise CANDIDATE itself is returned — whether because it has
-no entry in TABLE, or because its entry carries only an annotation."
+  "Return the target value for CANDIDATE in TABLE.
+If no target is found, return CANDIDATE itself."
   (let ((value (map-elt table candidate)))
     (if (consp value)
         (cdr value)
       candidate)))
 
 (defun annotated-completing-read--to-map (table)
-  "Normalize TABLE to a hash table of candidate -> ANNOTATION-or-TARGET-pair.
-TABLE may be a hash table mapping candidates to annotation strings (or to
-\(ANNOTATION . TARGET) conses), a dotted alist ((CANDIDATE . ANNOTATION) ...),
-a list-form alist ((CANDIDATE ANNOTATION) ...), or a triple-form alist
-\((CANDIDATE ANNOTATION . TARGET) ...).  ANNOTATION may be nil to suppress
-the annotation for that candidate.  TARGET, when present, is returned by
-`annotated-completing-read' in place of the candidate string.
-
-A hash-table TABLE is validated and returned as-is — never copied — since
-its values already use the same ANNOTATION-or-(ANNOTATION . TARGET) shape
-this function would otherwise produce.  Signals `user-error' for any other
-input type."
+  "Convert TABLE into a normalized hash table.
+TABLE can be a hash table or an alist.
+This function returns a hash table mapping candidates to targets or annotations."
   (cond
    ((hash-table-p table)
     (seq-do #'annotated-completing-read--validate-hash-value (map-values table))
@@ -494,9 +424,7 @@ input type."
     (user-error "TABLE must be a hash table or alist mapping candidates to annotations"))))
 
 (defun annotated-completing-read--ensure-history ()
-  "Ensure history is a valid hash table.
-If savehist or desktop restored the value as an alist, convert it.
-Any other non-hash-table value is discarded and replaced with an empty table."
+  "Initialize or fix the global history hash table."
   (cond
     ((hash-table-p annotated-completing-read-history))
     ((and (proper-list-p annotated-completing-read-history)
@@ -507,9 +435,9 @@ Any other non-hash-table value is discarded and replaced with an empty table."
      (setq annotated-completing-read-history (make-hash-table :test #'equal)))))
 
 (defun annotated-completing-read--apply-annotation-face (padded raw)
-  "Apply a face to PADDED annotation per `annotated-completing-read-annotation-face'.
-RAW is the annotation before padding; its first character is checked for an
-existing `face' property to decide whether to apply or skip."
+  "Apply a face to PADDED annotation text.
+The face behavior is determined by `annotated-completing-read-annotation-face'.
+Existing face properties on RAW are preserved."
   (pcase annotated-completing-read-annotation-face
     ('strip
      (substring-no-properties padded))
@@ -525,8 +453,8 @@ existing `face' property to decide whether to apply or skip."
        (propertize padded 'face face)))))
 
 (defun annotated-completing-read--context-candidates (&optional seed)
-  "Build an annotated alist of candidates from the current context.
-SEED is a string or list of strings to include as explicit candidates."
+  "Build candidates from the current context.
+SEED contains optional extra strings."
   (thread-last
     (append
      ;; current line
@@ -583,7 +511,8 @@ SEED is a string or list of strings to include as explicit candidates."
 		    (buffer-list)))))
 
 (defun annotated-completing-read--filter-directories (sequence)
-  "Return SEQUENCE filtered to existing directories, canonicalized and deduplicated."
+  "Filter SEQUENCE to existing directories.
+Paths are expanded and deduplicated."
   (thread-last sequence
        (seq-filter #'stringp)
        (seq-map #'string-trim)
@@ -597,7 +526,9 @@ SEED is a string or list of strings to include as explicit candidates."
        (seq-filter #'file-directory-p)))
 
 (defun annotated-completing-read--directory-clean (dirs)
-  "Normalize DIRS: expand relative paths, drop nil/blank, and de-duplicate."
+  "Normalize directory list DIRS.
+Empty entries are discarded.
+Paths are expanded and deduplicated."
   (thread-last dirs
        (seq-remove #'null)
        (seq-map #'string-trim)
@@ -609,7 +540,7 @@ SEED is a string or list of strings to include as explicit candidates."
        (seq-map #'file-name-as-directory)))
 
 (defun annotated-completing-read--directory-parents (&optional start stop)
-  "Return intermediate directory paths walking up from START to STOP."
+  "Return directory paths from START up to STOP."
   (let* ((stop-path (expand-file-name (string-trim (or stop "~/"))))
          (current (expand-file-name (string-trim (or start default-directory))))
          (output (list stop-path current)))
@@ -619,7 +550,7 @@ SEED is a string or list of strings to include as explicit candidates."
     (annotated-completing-read--filter-directories output)))
 
 (defun annotated-completing-read--directory-default-candidates ()
-  "Assemble context-aware directory candidates from project, buffers, and point."
+  "Return default directory candidates from the current context."
   (let* ((proj-root (annotated-completing-read--project-root))
 	 (home (expand-file-name "~/"))
 	 (candidates
@@ -658,7 +589,7 @@ SEED is a string or list of strings to include as explicit candidates."
        candidates))))
 
 (defun annotated-completing-read--directory-buffer-count (dir)
-  "Return the number of live buffers visiting a file under DIR."
+  "Return the number of open buffers visiting files under DIR."
   (let ((prefix (file-name-as-directory (expand-file-name dir))))
     (thread-last (buffer-list)
       (seq-map #'buffer-file-name)
@@ -666,14 +597,15 @@ SEED is a string or list of strings to include as explicit candidates."
       (seq-count (lambda (file) (string-prefix-p prefix (expand-file-name file)))))))
 
 (defun annotated-completing-read--directory-buffer-suffix (dir)
-  "Return \", N buffers\" for DIR when it has open buffers, else \"\"."
+  "Return a string describing open buffers under DIR.
+It returns an empty string if no buffers are open."
   (let ((buffers (annotated-completing-read--directory-buffer-count dir)))
     (if (> buffers 0)
         (format ", %d buffer%s" buffers (if (= buffers 1) "" "s"))
       "")))
 
 (defun annotated-completing-read--directory-entry-counts (dir)
-  "Return a brief annotation with subdirectory, file, and buffer counts for DIR."
+  "Return an entry count string for DIR."
   (concat
    (or (when (file-accessible-directory-p dir)
 	 (let* ((entries (directory-files dir t "\\`[^.]"))

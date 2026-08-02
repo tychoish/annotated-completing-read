@@ -25,11 +25,11 @@ mold to you over time.
   - [[#use-package][Use Package]]
   - [[#manual][Manual]]
 - [[#api-reference][API Reference]]
-  - [[#annotated-completing-read-annotation-face-variable][~annotated-completing-read-annotation-face~ (Variable)]]
-  - [[#annotated-completing-read-history-variable][~annotated-completing-read-history~ (Variable)]]
-  - [[#annotated-completing-read][~annotated-completing-read~]]
-  - [[#annotated-completing-read-directory][~annotated-completing-read-directory~]]
-  - [[#annotated-completing-read-context-from-point][~annotated-completing-read-context-from-point~]]
+  - [[#annotated-completing-read-annotation-face][annotated-completing-read-annotation-face]]
+  - [[#annotated-completing-read-history][annotated-completing-read-history]]
+  - [[#annotated-completing-read][annotated-completing-read]]
+  - [[#annotated-completing-read-directory][annotated-completing-read-directory]]
+  - [[#annotated-completing-read-context-from-point][annotated-completing-read-context-from-point]]
 - [[#license][License]]
 
 * Installation
@@ -92,8 +92,7 @@ Additional symbol kinds are controlled by `include-kinds':
   'customs   -- defcustom
 #+END_COMMENT
 
-#+BEGIN_SRC emacs-lisp :results output raw :exports none 
-  (require 'org-docsgen)
+#+BEGIN_SRC emacs-lisp :results output raw :exports none
   (org-docsgen-run
    :scope 'autoloaded
    :include-kinds '(variables customs)
@@ -101,77 +100,65 @@ Additional symbol kinds are controlled by `include-kinds':
 #+END_SRC
 
 #+RESULTS:
-** ~annotated-completing-read-annotation-face~ (Variable)
+** annotated-completing-read-annotation-face :variable:
 
 Controls how face properties are applied to annotation strings.
 
 ‘default’  — apply ‘completions-annotations’ to annotations that carry no face text property.  This is the default. ‘override’ — always apply ‘completions-annotations’, overriding any existing face. ‘strip’    — remove all face text properties from annotations. Any other symbol — treat it as a face name and apply it to annotations that carry no face text property.
 
-** ~annotated-completing-read-history~ (Variable)
+** annotated-completing-read-history :variable:
 
 Hash table mapping command symbols to per-command minibuffer history lists. Keys are symbols — typically ‘this-command’ at call time — and values are the standard Emacs history lists accumulated by ‘completing-read’.
 
-** ~annotated-completing-read~
+** annotated-completing-read
 
 : (fn TABLE &key (PROMPT "=> ") REQUIRE-MATCH CATEGORY HISTORY GROUP-NAME GROUP-DISPLAY INITIAL-INPUT SORT-FN DEFAULT OR-NIL MULTIPLE MIN MAX)
 
-Read a candidate from TABLE with aligned per-candidate annotations. TABLE is any Emacs hash table ‘make-hash-table’ mapping candidate strings to annotation strings.  Column alignment is computed automatically; callers need not pad candidates or annotations.
+Read a candidate from completion TABLE. TABLE maps candidates to annotations or target values. Alignment is automatic.
 
-PROMPT is the minibuffer prompt (default "=> "); a trailing space is appended automatically if absent.
+TABLE can be a hash table or an alist. A list-form alist uses the format: ((CANDIDATE ANNOTATION) ...). A dotted alist uses the format: ((CANDIDATE . ANNOTATION) ...). A triple-form alist uses the format: ((CANDIDATE ANNOTATION . TARGET) ...). An annotation can be nil.
 
-REQUIRE-MATCH, when non-nil, forces the user to select an existing candidate. When nil (the default), arbitrary input not present in TABLE is accepted and returned verbatim.
+PROMPT is the minibuffer prompt. It defaults to "=> ". A trailing space is appended if it is missing.
 
-CATEGORY is an optional completion-category symbol surfaced as table metadata. Completion UIs (vertico, embark, marginalia) use it to select annotations, keybindings, and actions.  Common values:
+REQUIRE-MATCH forces the user to select an existing candidate. If nil, the minibuffer accepts arbitrary input.
 
-  ‘file’              – file-name actions, path display via marginalia
-  ‘buffer’            – buffer switching and embark buffer actions
-  ‘command’           – executed-extended-command dispatch
-  ‘symbol’            – Lisp symbol lookup and eldoc integration
-  ‘bookmark’          – ‘bookmark-jump’ actions
-  ‘consult-grep’      – ‘consult-grep’ result actions (jump to line, etc.)
-  ‘consult-mu’        – ‘consult-mu’ mail account entries
+CATEGORY is a symbol for the completion category. External packages like embark or marginalia use it to determine behavior. Common values include ‘file’, ‘buffer’, ‘command’, and ‘symbol’.
 
-HISTORY is a symbol key into ‘annotated-completing-read-history’ (a hash table of per-command history lists).  Defaults to ‘this-command’ captured at call time, giving each command its own isolated history automatically.  Pass an explicit symbol to share history across several call sites.
+HISTORY is a symbol representing the history list. It defaults to ‘this-command’. Use a shared symbol to share history between commands.
 
-GROUP-NAME is a function (CANDIDATE) => group-name-string that returns which group a candidate belongs to, or a plain string for a single constant group. When nil, no grouping metadata is emitted.
+GROUP-NAME determines candidate grouping. It can be a function or a static string.
 
-GROUP-DISPLAY is an optional function (CANDIDATE) => display-string that controls how a candidate is rendered within its group.  Defaults to identity where candidate are displayed verbatim.  Only meaningful when GROUP-NAME is set.
+GROUP-DISPLAY formats the candidate text for display. It is a function that takes a candidate string. This option requires GROUP-NAME.
 
-Together GROUP-NAME and GROUP-DISPLAY are assembled into the ‘group-function’ completion metadata entry expected by vertico and other UIs.
+INITIAL-INPUT is an optional string to pre-fill in the minibuffer.
 
-INITIAL-INPUT is an optional string pre-filled into the minibuffer.
+SORT-FN is a function to sort candidates before display.
 
-SORT-FN is an optional function (LIST-OF-STRINGS) => LIST-OF-STRINGS that reorders candidates before display.  Surfaced as ‘display-sort-function’ in completion metadata, so vertico and other UIs apply it before rendering.
+DEFAULT is the fallback return value. It is returned on empty input or quit.
 
-DEFAULT is a string returned when TABLE is empty (no prompt is shown), the user accepts empty input, or the user quits with C-g.  When non-nil it is also passed to ‘completing-read’ as its DEF argument so completion UIs can display it in the prompt.
+OR-NIL silences quit and empty input by returning nil. This option takes effect only when DEFAULT is nil.
 
-OR-NIL, when non-nil, silences C-g and empty input by returning nil instead.  Useful when the caller treats nil as "nothing selected" without needing a specific fallback string.  Takes effect only when DEFAULT is nil; DEFAULT takes precedence.
+A table entry can supply an optional TARGET. This TARGET is returned instead of the candidate string. It also affects selection via DEFAULT. It allows packages like embark to act on the target directly.
 
-TABLE may be a hash table, a dotted alist ((CANDIDATE . ANNOTATION) ...), a list-form alist ((CANDIDATE ANNOTATION) ...), or a triple-form alist ((CANDIDATE ANNOTATION . TARGET) ...).  ANNOTATION may be nil to suppress the annotation for that candidate.  Signals ‘user-error’ for any other type.
+MULTIPLE allows selecting multiple candidates. It returns an ordered list of selections. Press M-x annotated-completing-read--multi-continue to accept a pick and continue. Press M-x annotated-completing-read--multi-finish-now to finish immediately. Pressing RET accepts the current input and finishes. DEFAULT and OR-NIL apply to the entire session.
 
-TARGET, when a table entry supplies one (via the triple-form list entry or a hash-table value of (ANNOTATION . TARGET)), is returned in place of the selected candidate string — including when the candidate is resolved via DEFAULT.  Entries with no target continue to return the candidate string, unchanged from prior behavior.  When TARGET is present, its candidate string is also tagged with a ‘multi-category’ text property so embark acts on TARGET rather than the display string; see ‘annotated-completing-read--tag-multi-category’.
+MIN is the minimum number of required selections. MAX is the maximum number of allowed selections. Reaching MAX finishes the session automatically. These options require MULTIPLE.
 
-MULTIPLE, when non-nil, returns an ordered list of picks instead of a single string/target.  The session stays in one minibuffer prompt per pick, driven by ‘annotated-completing-read-multi-mode’: M-, accepts the current input as a pick and prompts again with it excluded from TABLE; M-. finishes immediately, discarding unaccepted pending input; plain RET accepts the current input (if any) as a final pick and finishes, matching the single-pick behavior of a ‘:multiple t’ call with exactly one pick.  DEFAULT/OR-NIL apply to the whole call on quit or on an empty table, not per pick.
-
-MIN and MAX are only meaningful with MULTIPLE, and signal ‘user-error’ otherwise.  MIN is the fewest picks required before RET/ M-. are honored; below it, the session keeps prompting.  MAX is a cap: reaching it ends the session immediately, as if M-. had been pressed.
-
-** ~annotated-completing-read-directory~
+** annotated-completing-read-directory
 
 : (fn &optional &key CANDIDATES PROMPT REQUIRE-MATCH MULTIPLE MIN MAX)
 
-Select a directory with annotated completion. CANDIDATES is an explicit list of directory paths; if nil, a context-aware list is computed from the project root, open buffers, and ‘thing-at-point’. PROMPT defaults to "directory: ".  REQUIRE-MATCH, MULTIPLE, MIN, and MAX are passed through to ‘annotated-completing-read’ unchanged — see its docstring for what MULTIPLE/MIN/MAX do.
+Select a directory using annotated completion. CANDIDATES is an optional list of directory paths. If nil, candidates are gathered from the current context. PROMPT is the minibuffer prompt. It defaults to "directory: ". Other arguments match ‘annotated-completing-read’. Annotations show directory relationships or entry counts.
 
-With 8 or fewer candidates the annotation shows the directory’s relationship to the current directory ("parent", "project root", etc.).  With more than 8 candidates candidates are grouped by that relationship label and the annotation shows entry counts instead.
-
-** ~annotated-completing-read-context-from-point~
+** annotated-completing-read-context-from-point
 
 : (fn &optional &key PROMPT SEED INITIAL-INPUT HISTORY)
 
-Select a string from context-aware candidates with PROMPT. Candidates are drawn from ‘thing-at-point’, the active region, the current line, the kill ring, and any explicit SEED strings.  SEED may be a string or a list of strings.  Callers can specify INITIAL-INPUT to control an initial selection.
+Select a candidate from the current editing context. PROMPT is the minibuffer prompt. SEED specifies explicit candidate strings. INITIAL-INPUT is the initial minibuffer text. HISTORY specifies the history list. This function returns an empty string if no candidate is chosen.
 
-HISTORY is a symbol passed to ‘annotated-completing-read’ to scope the per-command history; defaults to ‘this-command’, giving each calling command its own isolated history.
 
-Returns the emptry string if there are no options or no selections.
+
+
 
 * License
 

@@ -156,10 +156,6 @@ Select a directory using annotated completion. CANDIDATES is an optional list of
 
 Select a candidate from the current editing context. PROMPT is the minibuffer prompt. SEED specifies explicit candidate strings. INITIAL-INPUT is the initial minibuffer text. HISTORY specifies the history list. This function returns an empty string if no candidate is chosen.
 
-
-
-
-
 * License
 
 Copyright (C) tychoish. GPL-3.0 or later. See the source file header

@@ -49,16 +49,15 @@
 (defvar annotated-completing-read-annotation-face 'default
   "Controls how face properties are applied to annotation strings.
 
-`default'  — apply `completions-annotations' to annotations that carry no
-             face text property.  This is the default.
-`override' — always apply `completions-annotations', overriding any existing face.
-`strip'    — remove all face text properties from annotations.
-Any other symbol — treat it as a face name and apply it to annotations that
-             carry no face text property.")
+`default': apply `completions-annotations' to annotations that carry no face text property.  This is the default.
+
+`override': always apply `completions-annotations', overriding any existing face.
+
+`strip': remove all face text properties from annotations. Other symbols are treated as a face name and applied it to annotations that carry no face text property.")
 
 (defvar annotated-completing-read-history (make-hash-table :test #'equal)
   "Hash table mapping command symbols to per-command minibuffer history lists.
-Keys are symbols — typically `this-command' at call time — and values are
+Keys are symbols, typically `this-command' at call time, and values are
 the standard Emacs history lists accumulated by `completing-read'.")
 
 (defun annotated-completing-read-clear-history ()
@@ -73,13 +72,14 @@ the standard Emacs history lists accumulated by `completing-read'.")
 TABLE maps candidates to annotations or target values.
 Alignment is automatic.
 
-TABLE can be a hash table or an alist.
-A list-form alist uses the format: ((CANDIDATE ANNOTATION) ...).
-A dotted alist uses the format: ((CANDIDATE . ANNOTATION) ...).
-A triple-form alist uses the format: ((CANDIDATE ANNOTATION . TARGET) ...).
-An annotation can be nil.
+TABLE can be a hash table or an alist:
 
-PROMPT is the minibuffer prompt. It defaults to \"=> \".
+- A list-form alist uses the format: =((CANDIDATE ANNOTATION) ...)=.
+- A dotted alist uses the format: =((CANDIDATE . ANNOTATION) ...)=.
+- A triple-form alist uses the format: =((CANDIDATE ANNOTATION . TARGET) ...)=.
+- An annotation can be =nil=.
+
+PROMPT is the minibuffer prompt. It defaults to ='=> '=.
 A trailing space is appended if it is missing.
 
 REQUIRE-MATCH forces the user to select an existing candidate.
@@ -115,15 +115,17 @@ This TARGET is returned instead of the candidate string.
 It also affects selection via DEFAULT.
 It allows packages like embark to act on the target directly.
 
-MULTIPLE allows selecting multiple candidates.
-It returns an ordered list of selections.
-Press \\[annotated-completing-read--multi-continue] to accept a pick and continue.
-Press \\[annotated-completing-read--multi-finish-now] to finish immediately.
-Pressing RET accepts the current input and finishes.
-DEFAULT and OR-NIL apply to the entire session.
+MULTIPLE allows selecting multiple candidates. It returns an ordered
+list of selections. Press `annotated-completing-read--multi-continue' to
+accept a pick and continue. Press
+`annotated-completing-read--multi-finish-now' to finish immediately.
+Pressing RET accepts the current input and finishes.  DEFAULT and OR-NIL
+apply to the entire session.
 
 MIN is the minimum number of required selections.
+
 MAX is the maximum number of allowed selections.
+
 Reaching MAX finishes the session automatically.
 These options require MULTIPLE."
   (when (and (or min max) (not multiple))
@@ -298,7 +300,7 @@ Parameters match `annotated-completing-read'."
   "Select a directory using annotated completion.
 CANDIDATES is an optional list of directory paths.
 If nil, candidates are gathered from the current context.
-PROMPT is the minibuffer prompt. It defaults to \"directory: \".
+PROMPT is the minibuffer prompt. It defaults to =directory: =.
 Other arguments match `annotated-completing-read'.
 Annotations show directory relationships or entry counts."
   (let* ((dirs (or (annotated-completing-read--directory-clean candidates)
@@ -358,10 +360,15 @@ Annotations show directory relationships or entry counts."
 ;;;###autoload
 (cl-defun annotated-completing-read-context-from-point (&optional &key prompt seed initial-input history)
   "Select a candidate from the current editing context.
+
 PROMPT is the minibuffer prompt.
+
 SEED specifies explicit candidate strings.
+
 INITIAL-INPUT is the initial minibuffer text.
+
 HISTORY specifies the history list.
+
 This function returns an empty string if no candidate is chosen."
   (annotated-completing-read
    (annotated-completing-read--context-candidates seed)

@@ -24,6 +24,7 @@ mold to you over time.
   - [[#use-package-with-vc][use-package with VC]]
   - [[#use-package][Use Package]]
   - [[#manual][Manual]]
+- [[#configuration][Configuration]]
 - [[#api-reference][API Reference]]
   - [[#annotated-completing-read-annotation-face][annotated-completing-read-annotation-face]]
   - [[#annotated-completing-read-history][annotated-completing-read-history]]
@@ -71,6 +72,22 @@ git clone https://github.com/tychoish/annotated-completing-read.el ~/path/to/ann
 #+BEGIN_SRC emacs-lisp
 (add-to-list 'load-path "~/path/to/annotated-completing-read")
 (require 'annotated-completing-read)
+#+END_SRC
+
+* Configuration
+
+To persist history across Emacs sessions using the built-in =savehist= and =desktop= libraries, call the history setup function in your configuration:
+
+#+BEGIN_SRC emacs-lisp
+  (annotated-completing-read-setup-history)
+#+END_SRC
+
+For =use-package= users, call it inside the =:config= block:
+
+#+BEGIN_SRC emacs-lisp
+  (use-package annotated-completing-read
+    :config
+    (annotated-completing-read-setup-history))
 #+END_SRC
 
 * API Reference

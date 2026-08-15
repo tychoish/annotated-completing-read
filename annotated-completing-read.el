@@ -1,12 +1,12 @@
 ;;; annotated-completing-read.el --- Completing-read with aligned annotations -*- lexical-binding: t -*-
 
-;; Author: sam kleinman
+;; Author: sam kleinman <garen@tychoish.com>
 ;; Assisted-by: Claude:Sonnet-4.6
-;; Maintainer: tychoish
+;; Maintainer: sam kleinman <garen@tychoish.com>
 ;; Version: 0.1
 ;; Package-Requires: ((emacs "29.1"))
 ;; Keywords: convenience, matching
-;; URL: https://github.com/tychoish/dot-emacs
+;; URL: https://github.com/tychoish/annotated-completing-read
 
 ;; This file is not part of GNU Emacs
 
@@ -46,14 +46,21 @@
 
 (require 'project)
 
+(defvar desktop-globals-to-save)
+(defvar savehist-additional-variables)
+
 (defvar annotated-completing-read-annotation-face 'default
   "Controls how face properties are applied to annotation strings.
 
-`default': apply `completions-annotations' to annotations that carry no face text property.  This is the default.
+`default': apply `completions-annotations' to annotations that
+carry no face text property.  This is the default.
 
-`override': always apply `completions-annotations', overriding any existing face.
+`override': always apply `completions-annotations', overriding
+any existing face.
 
-`strip': remove all face text properties from annotations. Other symbols are treated as a face name and applied it to annotations that carry no face text property.")
+`strip': remove all face text properties from annotations.
+Other symbols are treated as a face name and applied to
+annotations that carry no face text property.")
 
 (defvar annotated-completing-read-history (make-hash-table :test #'equal)
   "Hash table mapping command symbols to per-command minibuffer history lists.
@@ -79,7 +86,7 @@ TABLE can be a hash table or an alist:
 - A triple-form alist uses the format: =((CANDIDATE ANNOTATION . TARGET) ...)=.
 - An annotation can be =nil=.
 
-PROMPT is the minibuffer prompt. It defaults to ='=> '=.
+PROMPT is the minibuffer prompt.  It defaults to ='=> '=.
 A trailing space is appended if it is missing.
 
 REQUIRE-MATCH forces the user to select an existing candidate.
@@ -115,9 +122,9 @@ This TARGET is returned instead of the candidate string.
 It also affects selection via DEFAULT.
 It allows packages like embark to act on the target directly.
 
-MULTIPLE allows selecting multiple candidates. It returns an ordered
-list of selections. Press `annotated-completing-read--multi-continue' to
-accept a pick and continue. Press
+MULTIPLE allows selecting multiple candidates.  It returns an ordered
+list of selections.  Press `annotated-completing-read--multi-continue' to
+accept a pick and continue.  Press
 `annotated-completing-read--multi-finish-now' to finish immediately.
 Pressing RET accepts the current input and finishes.  DEFAULT and OR-NIL
 apply to the entire session.
@@ -203,7 +210,8 @@ These arguments have the same meaning as in `annotated-completing-read'."
         (complete-with-action action candidates str pred)))))
 
 (defvar-local annotated-completing-read--multi-signal-box nil
-  "Mutable one-element list set by `annotated-completing-read-multi-mode'
+  "Mutable one-element list for signaling user actions.
+This is set by `annotated-completing-read-multi-mode'
 commands to tell the `:multiple' loop in `annotated-completing-read' what the
 user just requested.  Car is nil (finish, accepting the current input as the
 last pick), `continue' (accept and prompt again), or `discard' (finish now,
@@ -239,7 +247,11 @@ Press `M-.' to finish the session and discard pending input."
     (signal-box prompt collection require-match initial-input hist)
   "Run a single multi-select completion step.
 SIGNAL-BOX receives control signals from the user.
-Other arguments are forwarded to `completing-read'."
+PROMPT is the minibuffer prompt.
+COLLECTION is the completion collection.
+REQUIRE-MATCH determines whether a match is required.
+INITIAL-INPUT is the initial input.
+HIST is the history list symbol."
   (minibuffer-with-setup-hook
       (lambda ()
         (setq-local annotated-completing-read--multi-signal-box signal-box)
@@ -250,8 +262,17 @@ Other arguments are forwarded to `completing-read'."
     (table prompt require-match category history group-name group-display
            initial-input sort-fn default or-nil min max)
   "Read multiple selections from TABLE.
-This function returns an ordered list of resolved targets.
-Parameters match `annotated-completing-read'."
+PROMPT is the prompt string.
+REQUIRE-MATCH indicates whether match is required.
+CATEGORY is the metadata category.
+HISTORY is the history symbol.
+GROUP-NAME and GROUP-DISPLAY are grouping functions.
+INITIAL-INPUT is the initial input.
+SORT-FN is the sorting function.
+DEFAULT is the fallback value.
+OR-NIL controls return on quit.
+MIN and MAX define selection limits.
+This function returns an ordered list of resolved targets."
   (let* ((prompt (if (string-suffix-p " " prompt) prompt (concat prompt " ")))
          (hist-key (or history this-command 'annotated-completing-read))
          (working-table (copy-hash-table table))
@@ -300,8 +321,10 @@ Parameters match `annotated-completing-read'."
   "Select a directory using annotated completion.
 CANDIDATES is an optional list of directory paths.
 If nil, candidates are gathered from the current context.
-PROMPT is the minibuffer prompt. It defaults to =directory: =.
-Other arguments match `annotated-completing-read'.
+PROMPT is the minibuffer prompt.  It defaults to \"directory:\".
+REQUIRE-MATCH determines whether a match is required.
+MULTIPLE enables selecting multiple directories.
+MIN and MAX define selection limits for multiple selections.
 Annotations show directory relationships or entry counts."
   (let* ((dirs (or (annotated-completing-read--directory-clean candidates)
                   (annotated-completing-read--directory-default-candidates)))
@@ -379,9 +402,11 @@ This function returns an empty string if no candidate is chosen."
    :history (or history this-command 'annotated-completing-read-context-from-point)))
 
 (defun annotated-completing-read--length-of-longest (items)
+  "Return the length of the longest string in ITEMS."
   (apply #'max 0 (seq-map #'length items)))
 
 (defun annotated-completing-read--prefix-padding (key longest)
+  "Return space padding for KEY based on LONGEST key length."
   (make-string (abs (+ 4 (- longest (length key)))) ?\s))
 
 (defun annotated-completing-read--validate-hash-value (value)
@@ -391,8 +416,7 @@ VALUE must be a string, nil, or a cons cell."
     (user-error "Hash-table annotation must be a string, nil, or (ANNOTATION . TARGET); got: %S" value)))
 
 (defun annotated-completing-read--normalize-alist-value (value)
-  "Normalize an alist value.
-The returned value is an annotation string or an annotation-target pair."
+  "Normalize an alist VALUE to an annotation or annotation-target pair."
   (cond
    ((and (consp value) (cdr value))
     (cons (car value) (cdr value)))
@@ -504,11 +528,13 @@ SEED contains optional extra strings."
 (declare-function projectile-project-root "projectile")
 
 (defun annotated-completing-read--project-root ()
+  "Return the root directory of the current project."
   (or (when-let* ((project (project-current))) (project-root project))
       (when (featurep 'projectile) (projectile-project-root))
       (expand-file-name default-directory)))
 
 (defun annotated-completing-read--project-buffers ()
+  "Return the list of buffers belonging to the current project."
   (or (when-let* ((project (project-current))) (project-buffers project))
       (when (featurep 'projectile) (projectile-project-buffers))
       (let ((dir (annotated-completing-read--project-root)))
@@ -622,12 +648,14 @@ It returns an empty string if no buffers are open."
        "")
    (annotated-completing-read--directory-buffer-suffix dir)))
 
-(with-eval-after-load 'desktop
-  (add-to-list 'desktop-globals-to-save 'annotated-completing-read-history))
-
-(with-eval-after-load 'savehist
-  (add-to-list 'savehist-additional-variables 'annotated-completing-read-history)
-  (add-hook 'savehist-mode-hook #'annotated-completing-read--ensure-history))
+;;;###autoload
+(defun annotated-completing-read-setup-history ()
+  "Enable savehist and desktop history integration for `annotated-completing-read'."
+  (with-eval-after-load 'desktop
+    (add-to-list 'desktop-globals-to-save 'annotated-completing-read-history))
+  (with-eval-after-load 'savehist
+    (add-to-list 'savehist-additional-variables 'annotated-completing-read-history)
+    (add-hook 'savehist-mode-hook #'annotated-completing-read--ensure-history)))
 
 (provide 'annotated-completing-read)
 ;;; annotated-completing-read.el ends here

@@ -677,6 +677,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
   (let* ((dir (expand-file-name "/tmp/"))
          (default-directory dir))
     (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () dir))
+              ((symbol-function 'annotated-completing-read--directory-buffer-suffix) (lambda (_) ""))
               ((symbol-function 'annotated-completing-read)
                (lambda (tbl &rest _)
                  (should (equal "current directory (project root)" (map-elt tbl dir)))
@@ -689,6 +690,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
          (other (expand-file-name "/tmp/other/"))
          (default-directory other))
     (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () root))
+              ((symbol-function 'annotated-completing-read--directory-buffer-suffix) (lambda (_) ""))
               ((symbol-function 'annotated-completing-read)
                (lambda (tbl &rest _)
                  (should (equal "project root" (map-elt tbl root)))
@@ -701,6 +703,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
          (child (expand-file-name "/tmp/sub/"))
          (default-directory child))
     (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () parent))
+              ((symbol-function 'annotated-completing-read--directory-buffer-suffix) (lambda (_) ""))
               ((symbol-function 'annotated-completing-read)
                (lambda (tbl &rest _)
                  (should (member (map-elt tbl parent) '("project root" "parent")))
@@ -1000,6 +1003,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
          (child   (expand-file-name "/tmp/sub/"))
          (default-directory current))
     (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () current))
+              ((symbol-function 'annotated-completing-read--directory-buffer-suffix) (lambda (_) ""))
               ((symbol-function 'annotated-completing-read)
                (lambda (tbl &rest _)
                  (should (equal "child" (map-elt tbl child)))
@@ -1012,6 +1016,7 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
          (sibling (expand-file-name "/tmp/b/"))
          (default-directory current))
     (cl-letf (((symbol-function 'annotated-completing-read--project-root) (lambda () current))
+              ((symbol-function 'annotated-completing-read--directory-buffer-suffix) (lambda (_) ""))
               ((symbol-function 'annotated-completing-read)
                (lambda (tbl &rest _)
                  (should (equal "sibling" (map-elt tbl sibling)))
@@ -1111,18 +1116,21 @@ the invariant being tested is that key+padding is constant, not key+padding+valu
 ;; savehist / desktop integration (top-level registration)
 
 (ert-deftest annotated-completing-read/savehist-additional-variables ()
-  "Loading ACR registers history in savehist-additional-variables."
+  "Calling setup registers history in savehist-additional-variables."
   (require 'savehist)
+  (annotated-completing-read-setup-history)
   (should (member 'annotated-completing-read-history savehist-additional-variables)))
 
 (ert-deftest annotated-completing-read/savehist-mode-hook ()
-  "Loading ACR registers ensure-history on savehist-mode-hook."
+  "Calling setup registers ensure-history on savehist-mode-hook."
   (require 'savehist)
+  (annotated-completing-read-setup-history)
   (should (memq #'annotated-completing-read--ensure-history savehist-mode-hook)))
 
 (ert-deftest annotated-completing-read/desktop-globals-to-save ()
-  "Loading ACR registers history in desktop-globals-to-save."
+  "Calling setup registers history in desktop-globals-to-save."
   (require 'desktop)
+  (annotated-completing-read-setup-history)
   (should (member 'annotated-completing-read-history desktop-globals-to-save)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

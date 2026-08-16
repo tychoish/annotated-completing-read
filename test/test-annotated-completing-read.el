@@ -1,4 +1,4 @@
-;;; test-annotated-completing-read.el --- ERT tests for annotated-completing-read -*- lexical-binding: t -*-
+;;; test-annotated-completing-read.el --- ERT tests for annotated-completing-read -*- lexical-binding: t; no-byte-compile: t; -*-
 
 ;; These tests are designed to run inside a live Emacs session with the full
 ;; config loaded (M-x ert RET t RET), or via:

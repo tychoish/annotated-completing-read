@@ -1,6 +1,8 @@
 #+TITLE: annotated-completing-read -- rich ergonomic completion interface
 #+OPTIONS: toc:2 num:nil
 
+[[https://melpa.org/#/annotated-completing-read][file:https://melpa.org/packages/annotated-completing-read-badge.svg]]
+
 * Overview
 =annotated-completing-read= (acr) is a thin wrapper around the standard emacs
 =completing-read= facility, with a more ergonomic (lisp) interface. It shares a
